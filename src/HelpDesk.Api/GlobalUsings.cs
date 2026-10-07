@@ -1,0 +1,11 @@
+global using System.Data;
+global using System.Globalization;
+global using System.Security.Claims;
+global using System.Text;
+global using System.Text.Json;
+global using Dapper;
+global using HelpDesk.Api.Configuracion;
+global using HelpDesk.Api.Datos;
+global using HelpDesk.Api.Infraestructura;
+global using Microsoft.Data.SqlClient;
+global using Microsoft.Extensions.Options;

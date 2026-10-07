@@ -1,0 +1,7 @@
+bin/
+obj/
+node_modules/
+src/HelpDesk.Api/claves/
+src/HelpDesk.Api/admin-password-inicial.txt
+*.user
+.vs/

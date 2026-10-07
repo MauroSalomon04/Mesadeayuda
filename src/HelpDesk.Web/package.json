@@ -1,0 +1,24 @@
+{
+  "name": "helpdesk-asse-web",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Interfaz web de la Mesa de Ayuda ASSE - IntegradoC",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@headlessui/react": "2.2.10",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-icons": "5.7.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3"
+  }
+}
