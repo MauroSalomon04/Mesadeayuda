@@ -71,17 +71,17 @@ public sealed record DefinicionCatalogo(
         new Dictionary<string, DefinicionCatalogo>(StringComparer.OrdinalIgnoreCase)
         {
             ["responsables"] = new("responsables", "Responsable", "Nombre", 100, "Responsable", false, false, false, false, false,
-                "(SELECT COUNT(*) FROM dbo.Solicitud x WHERE x.ResponsableId = c.Id)"),
+                "(SELECT CAST(COUNT(*) AS INTEGER) FROM Solicitud x WHERE x.ResponsableId = c.Id)"),
             ["medios"] = new("medios", "MedioContacto", "Nombre", 60, "Medio de contacto", true, false, false, false, false,
-                "(SELECT COUNT(*) FROM dbo.Solicitud x WHERE x.MedioContactoId = c.Id)"),
+                "(SELECT CAST(COUNT(*) AS INTEGER) FROM Solicitud x WHERE x.MedioContactoId = c.Id)"),
             ["tipos"] = new("tipos", "TipoSolicitud", "Codigo", 30, "Tipo de solicitud", false, false, false, false, true,
-                "(SELECT COUNT(*) FROM dbo.Solicitud x WHERE x.TipoSolicitudId = c.Id)"),
+                "(SELECT CAST(COUNT(*) AS INTEGER) FROM Solicitud x WHERE x.TipoSolicitudId = c.Id)"),
             ["estados"] = new("estados", "Estado", "Nombre", 60, "Estado", true, true, true, false, false,
-                "(SELECT COUNT(*) FROM dbo.Solicitud x WHERE x.EstadoId = c.Id)"),
+                "(SELECT CAST(COUNT(*) AS INTEGER) FROM Solicitud x WHERE x.EstadoId = c.Id)"),
             ["prioridades"] = new("prioridades", "Prioridad", "Nombre", 30, "Prioridad", true, false, false, true, false,
-                "(SELECT COUNT(*) FROM dbo.Solicitud x WHERE x.PrioridadId = c.Id)"),
+                "(SELECT CAST(COUNT(*) AS INTEGER) FROM Solicitud x WHERE x.PrioridadId = c.Id)"),
             ["areas"] = new("areas", "AreaAsse", "Nombre", 150, "Área de ASSE", false, false, false, false, false,
-                "(SELECT COUNT(*) FROM dbo.TareaExtra x WHERE x.AreaAsseId = c.Id AND x.EliminadoEn IS NULL)"),
+                "(SELECT CAST(COUNT(*) AS INTEGER) FROM TareaExtra x WHERE x.AreaAsseId = c.Id AND x.EliminadoEn IS NULL)"),
         };
 
     public string SqlSelect(bool incluirUsos) =>
@@ -90,13 +90,13 @@ public sealed record DefinicionCatalogo(
                c.{ColumnaNombre} AS Nombre,
                c.Activo,
                c.Orden,
-               {(TienePredeterminado ? "c.Predeterminado" : "CAST(0 AS BIT) AS Predeterminado")},
-               {(TieneEsResuelto ? "c.EsResuelto" : "CAST(NULL AS BIT) AS EsResuelto")},
-               {(TieneColor ? "c.Color" : "CAST(NULL AS NVARCHAR(20)) AS Color")},
+               {(TienePredeterminado ? "c.Predeterminado" : "FALSE AS Predeterminado")},
+               {(TieneEsResuelto ? "c.EsResuelto" : "CAST(NULL AS BOOLEAN) AS EsResuelto")},
+               {(TieneColor ? "c.Color" : "CAST(NULL AS VARCHAR(20)) AS Color")},
                {(TieneNivel ? "c.Nivel" : "CAST(NULL AS INT) AS Nivel")},
-               {(TieneDescripcion ? "c.Descripcion" : "CAST(NULL AS NVARCHAR(200)) AS Descripcion")},
-               {(incluirUsos ? ConsultaUsos : "CAST(NULL AS INT)")} AS Usos
-        FROM dbo.{Tabla} c
+               {(TieneDescripcion ? "c.Descripcion" : "CAST(NULL AS VARCHAR(200)) AS Descripcion")},
+               {(incluirUsos ? ConsultaUsos : "CAST(NULL AS INTEGER)")} AS Usos
+        FROM {Tabla} c
         """;
 
     public string SqlOrden => $" ORDER BY c.Orden, c.{ColumnaNombre}";
@@ -173,11 +173,11 @@ public sealed class CatalogosRepositorio(BaseDatos db)
 
         var activo = entrada.Activo ?? anterior?.Activo ?? true;
         var orden = entrada.Orden ?? anterior?.Orden
-            ?? await cn.ExecuteScalarAsync<int>($"SELECT ISNULL(MAX(Orden), 0) + 1 FROM dbo.{def.Tabla}", transaction: tx);
+            ?? await cn.ExecuteScalarAsync<int>($"SELECT COALESCE(MAX(Orden), 0) + 1 FROM {def.Tabla}", transaction: tx);
         var predeterminado = def.TienePredeterminado && (entrada.Predeterminado ?? anterior?.Predeterminado ?? false);
         var esResuelto = def.TieneEsResuelto && (entrada.EsResuelto ?? anterior?.EsResuelto ?? false);
         var nivel = def.TieneNivel
-            ? entrada.Nivel ?? anterior?.Nivel ?? await cn.ExecuteScalarAsync<int>("SELECT ISNULL(MAX(Nivel), 0) + 1 FROM dbo.Prioridad", transaction: tx)
+            ? entrada.Nivel ?? anterior?.Nivel ?? await cn.ExecuteScalarAsync<int>("SELECT COALESCE(MAX(Nivel), 0) + 1 FROM Prioridad", transaction: tx)
             : (int?)null;
         var descripcion = def.TieneDescripcion ? Texto.Recortar(Texto.LimpiarLinea(entrada.Descripcion), 200) : null;
 
@@ -200,7 +200,7 @@ public sealed class CatalogosRepositorio(BaseDatos db)
         if (anterior is null)
         {
             idFinal = await cn.ExecuteScalarAsync<int>(
-                $"INSERT INTO dbo.{def.Tabla} ({string.Join(", ", columnas)}) OUTPUT inserted.Id VALUES ({string.Join(", ", valores)})",
+                $"INSERT INTO {def.Tabla} ({string.Join(", ", columnas)}) VALUES ({string.Join(", ", valores)}) RETURNING Id",
                 parametros, tx);
         }
         else
@@ -208,18 +208,18 @@ public sealed class CatalogosRepositorio(BaseDatos db)
             idFinal = anterior.Id;
             parametros.Add("Id", idFinal);
             var asignaciones = columnas.Zip(valores, (c, v) => $"{c} = {v}");
-            await cn.ExecuteAsync($"UPDATE dbo.{def.Tabla} SET {string.Join(", ", asignaciones)} WHERE Id = @Id", parametros, tx);
+            await cn.ExecuteAsync($"UPDATE {def.Tabla} SET {string.Join(", ", asignaciones)} WHERE Id = @Id", parametros, tx);
         }
 
         if (predeterminado)
         {
-            await cn.ExecuteAsync($"UPDATE dbo.{def.Tabla} SET Predeterminado = 0 WHERE Id <> @id", new { id = idFinal }, tx);
+            await cn.ExecuteAsync($"UPDATE {def.Tabla} SET Predeterminado = FALSE WHERE Id <> @id", new { id = idFinal }, tx);
         }
 
         if (def.TieneEsResuelto)
         {
             var resueltosActivos = await cn.ExecuteScalarAsync<int>(
-                "SELECT COUNT(*) FROM dbo.Estado WHERE EsResuelto = 1 AND Activo = 1", transaction: tx);
+                "SELECT COUNT(*) FROM Estado WHERE EsResuelto = TRUE AND Activo = TRUE", transaction: tx);
             if (resueltosActivos == 0)
                 throw ErrorApi.Validacion("Tiene que quedar al menos un estado activo marcado como \"resuelto\".");
         }

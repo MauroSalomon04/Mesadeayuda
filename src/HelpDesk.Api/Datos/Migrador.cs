@@ -4,18 +4,20 @@ namespace HelpDesk.Api.Datos;
 
 /// <summary>
 /// Aplica, en orden, los scripts de /database que todavía no se ejecutaron.
-/// Lleva el control en la tabla dbo.VersionEsquema.
+/// Lleva el control en la tabla VersionEsquema.
+/// Con Docker, el contenedor de PostgreSQL ya ejecuta esos scripts al crear la base
+/// (y los registra en VersionEsquema), así que aquí se omiten.
 /// </summary>
 public sealed partial class Migrador(BaseDatos db, IOptions<OpcionesHelpDesk> opciones, ILogger<Migrador> log)
 {
-    [GeneratedRegex(@"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
-    private static partial Regex SeparadorGo();
-
     [GeneratedRegex(@"^Scripts\.(\d+)_(.+)\.sql$", RegexOptions.IgnoreCase)]
     private static partial Regex NombreScript();
 
     [GeneratedRegex(@"/\*.*?\*/|--[^\r\n]*", RegexOptions.Singleline)]
     private static partial Regex Comentarios();
+
+    // Clave fija para que dos instancias no apliquen scripts al mismo tiempo.
+    private const long ClaveBloqueo = 4_815_162_342;
 
     private sealed record ScriptBd(int Version, string Nombre, string Contenido);
 
@@ -27,33 +29,41 @@ public sealed partial class Migrador(BaseDatos db, IOptions<OpcionesHelpDesk> op
         }
 
         await using var cn = await db.AbrirAsync(ct);
-        await cn.ExecuteAsync("""
-            IF OBJECT_ID(N'dbo.VersionEsquema', N'U') IS NULL
-                CREATE TABLE dbo.VersionEsquema (
-                    Version    INT           NOT NULL CONSTRAINT PK_VersionEsquema PRIMARY KEY,
-                    Nombre     NVARCHAR(200) NOT NULL,
-                    AplicadaEn DATETIME2(0)  NOT NULL
-                );
-            """);
-
-        var aplicadas = (await cn.QueryAsync<int>("SELECT Version FROM dbo.VersionEsquema")).ToHashSet();
-
-        foreach (var script in LeerScripts())
+        await cn.ExecuteAsync("SELECT pg_advisory_lock(@clave)", new { clave = ClaveBloqueo });
+        try
         {
-            if (aplicadas.Contains(script.Version)) continue;
+            await cn.ExecuteAsync("""
+                CREATE TABLE IF NOT EXISTS VersionEsquema (
+                    Version    INTEGER      NOT NULL CONSTRAINT PK_VersionEsquema PRIMARY KEY,
+                    Nombre     VARCHAR(200) NOT NULL,
+                    AplicadaEn TIMESTAMP(0) NOT NULL
+                );
+                """);
 
-            log.LogInformation("Aplicando script de base de datos {Version}: {Nombre}", script.Version, script.Nombre);
-            using var tx = cn.BeginTransaction();
-            foreach (var lote in SeparadorGo().Split(script.Contenido))
+            var aplicadas = (await cn.QueryAsync<int>("SELECT Version FROM VersionEsquema")).ToHashSet();
+
+            foreach (var script in LeerScripts())
             {
-                if (string.IsNullOrWhiteSpace(Comentarios().Replace(lote, ""))) continue;
-                await cn.ExecuteAsync(new CommandDefinition(lote, transaction: tx, commandTimeout: 300, cancellationToken: ct));
+                if (aplicadas.Contains(script.Version)) continue;
+                if (string.IsNullOrWhiteSpace(Comentarios().Replace(script.Contenido, ""))) continue;
+
+                log.LogInformation("Aplicando script de base de datos {Version}: {Nombre}", script.Version, script.Nombre);
+                await using var tx = await cn.BeginTransactionAsync(ct);
+                await cn.ExecuteAsync(new CommandDefinition(script.Contenido, transaction: tx, commandTimeout: 300, cancellationToken: ct));
+                await cn.ExecuteAsync(
+                    """
+                    INSERT INTO VersionEsquema (Version, Nombre, AplicadaEn)
+                    VALUES (@Version, @Nombre, LOCALTIMESTAMP(0))
+                    ON CONFLICT (Version) DO NOTHING
+                    """,
+                    new { script.Version, script.Nombre },
+                    tx);
+                await tx.CommitAsync(ct);
             }
-            await cn.ExecuteAsync(
-                "INSERT INTO dbo.VersionEsquema (Version, Nombre, AplicadaEn) VALUES (@Version, @Nombre, SYSDATETIME())",
-                new { script.Version, script.Nombre },
-                tx);
-            tx.Commit();
+        }
+        finally
+        {
+            await cn.ExecuteAsync("SELECT pg_advisory_unlock(@clave)", new { clave = ClaveBloqueo });
         }
     }
 
@@ -77,22 +87,23 @@ public sealed partial class Migrador(BaseDatos db, IOptions<OpcionesHelpDesk> op
         return scripts.OrderBy(s => s.Version).ToList();
     }
 
+    /// <summary>Crea la base si no existe, conectándose a la base de mantenimiento "postgres".</summary>
     private async Task CrearBaseSiNoExisteAsync(CancellationToken ct)
     {
-        var constructor = new SqlConnectionStringBuilder(db.CadenaConexion);
-        var nombreBase = constructor.InitialCatalog;
+        var constructor = new NpgsqlConnectionStringBuilder(db.CadenaConexion);
+        var nombreBase = constructor.Database;
         if (string.IsNullOrWhiteSpace(nombreBase)) return;
 
-        constructor.InitialCatalog = "master";
-        await using var cn = new SqlConnection(constructor.ConnectionString);
+        constructor.Database = "postgres";
+        constructor.Pooling = false;
+        await using var cn = new NpgsqlConnection(constructor.ConnectionString);
         await cn.OpenAsync(ct);
 
-        var existe = await cn.ExecuteScalarAsync<int?>("SELECT DB_ID(@nombre)", new { nombre = nombreBase });
+        var existe = await cn.ExecuteScalarAsync<int?>("SELECT 1 FROM pg_database WHERE datname = @nombre", new { nombre = nombreBase });
         if (existe is not null) return;
 
         log.LogInformation("Creando la base de datos {Base}", nombreBase);
-        await cn.ExecuteAsync(
-            "DECLARE @sql NVARCHAR(400) = N'CREATE DATABASE ' + QUOTENAME(@nombre) + N' COLLATE Modern_Spanish_CI_AS'; EXEC (@sql);",
-            new { nombre = nombreBase });
+        var identificador = "\"" + nombreBase.Replace("\"", "\"\"") + "\"";
+        await cn.ExecuteAsync($"CREATE DATABASE {identificador} ENCODING 'UTF8' TEMPLATE template0");
     }
 }

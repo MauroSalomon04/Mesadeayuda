@@ -40,7 +40,7 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         var sql = $"""
             SELECT COUNT(*) {ConsultaSolicitudes.Desde} {where};
             {ConsultaSolicitudes.Columnas} {ConsultaSolicitudes.Desde} {where} {orden}
-            OFFSET @offset ROWS FETCH NEXT @tamano ROWS ONLY;
+            LIMIT @tamano OFFSET @offset;
             """;
 
         await using var cn = await db.AbrirAsync(ct);
@@ -59,7 +59,7 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         p.Add("maximo", maximo);
         var sql = $"""
             {ConsultaSolicitudes.Columnas} {ConsultaSolicitudes.Desde} {where} {orden}
-            OFFSET 0 ROWS FETCH NEXT @maximo ROWS ONLY;
+            LIMIT @maximo;
             """;
         await using var cn = await db.AbrirAsync(ct);
         return (await cn.QueryAsync<SolicitudFila>(new CommandDefinition(sql, p, cancellationToken: ct, commandTimeout: 120))).ToList();
@@ -78,13 +78,13 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
                    s.CreadoEn, s.ActualizadoEn, s.FilaExcel, s.ImportacionId,
                    uc.NombreCompleto AS CreadoPor, ua.NombreCompleto AS ActualizadoPor
             {ConsultaSolicitudes.Desde}
-            LEFT JOIN dbo.Usuario uc ON uc.Id = s.CreadoPorId
-            LEFT JOIN dbo.Usuario ua ON ua.Id = s.ActualizadoPorId
+            LEFT JOIN Usuario uc ON uc.Id = s.CreadoPorId
+            LEFT JOIN Usuario ua ON ua.Id = s.ActualizadoPorId
             WHERE s.Id = @id AND s.EliminadoEn IS NULL;
 
             SELECT h.Id, h.FechaHora, u.NombreCompleto AS Usuario, h.Accion, h.Campo, h.ValorAnterior, h.ValorNuevo, h.Detalle
-            FROM dbo.SolicitudHistorial h
-            LEFT JOIN dbo.Usuario u ON u.Id = h.UsuarioId
+            FROM SolicitudHistorial h
+            LEFT JOIN Usuario u ON u.Id = h.UsuarioId
             WHERE h.SolicitudId = @id
             ORDER BY h.Id;
             """;
@@ -101,12 +101,12 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         return await cn.QuerySingleAsync<Contadores>(
             """
             SELECT
-                ISNULL(SUM(CASE WHEN e.EsResuelto = 0 THEN 1 ELSE 0 END), 0) AS Pendientes,
-                ISNULL(SUM(CASE WHEN e.EsResuelto = 0 AND s.ResponsableId = @rid THEN 1 ELSE 0 END), 0) AS MisPendientes,
-                ISNULL(SUM(CASE WHEN s.EstadoId IS NULL THEN 1 ELSE 0 END), 0) AS SinEstado,
-                ISNULL(SUM(CASE WHEN s.FechaIngreso >= @hoy THEN 1 ELSE 0 END), 0) AS Hoy
-            FROM dbo.Solicitud s
-            LEFT JOIN dbo.Estado e ON e.Id = s.EstadoId
+                COALESCE(SUM(CASE WHEN e.EsResuelto = FALSE THEN 1 ELSE 0 END), 0) AS Pendientes,
+                COALESCE(SUM(CASE WHEN e.EsResuelto = FALSE AND s.ResponsableId = @rid THEN 1 ELSE 0 END), 0) AS MisPendientes,
+                COALESCE(SUM(CASE WHEN s.EstadoId IS NULL THEN 1 ELSE 0 END), 0) AS SinEstado,
+                COALESCE(SUM(CASE WHEN s.FechaIngreso >= @hoy THEN 1 ELSE 0 END), 0) AS Hoy
+            FROM Solicitud s
+            LEFT JOIN Estado e ON e.Id = s.EstadoId
             WHERE s.EliminadoEn IS NULL
             """,
             new { rid = usuario.ResponsableId, hoy = reloj.Hoy() });
@@ -118,9 +118,9 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         await using var cn = await db.AbrirAsync(ct);
         return await cn.ExecuteScalarAsync<int>(
             """
-            SELECT CASE WHEN ISNULL(sq.UltimoValor, 0) > ISNULL(m.MaxId, 0) THEN ISNULL(sq.UltimoValor, 0) ELSE ISNULL(m.MaxId, 0) END + 1
-            FROM (SELECT MAX(Id) AS MaxId FROM dbo.Solicitud) m
-            LEFT JOIN dbo.Secuencia sq ON sq.Nombre = N'Solicitud'
+            SELECT CASE WHEN COALESCE(sq.UltimoValor, 0) > COALESCE(m.MaxId, 0) THEN COALESCE(sq.UltimoValor, 0) ELSE COALESCE(m.MaxId, 0) END + 1
+            FROM (SELECT MAX(Id) AS MaxId FROM Solicitud) m
+            LEFT JOIN Secuencia sq ON sq.Nombre = 'Solicitud'
             """);
     }
 
@@ -153,14 +153,14 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
 
         await cn.ExecuteAsync(
             """
-            INSERT INTO dbo.Solicitud
+            INSERT INTO Solicitud
                 (Id, FechaIngreso, DiaSemana, NombreFuncionario, OficinaId, MedioContactoId, TipoSolicitudId,
                  Descripcion, Observaciones, ResponsableId, DuracionEstimadaMin, EstadoId, PrioridadId,
                  FechaResolucion, MinutosResolucion, Origen, Version, CreadoPorId, CreadoEn, ActualizadoPorId, ActualizadoEn)
             VALUES
                 (@Id, @FechaIngreso, @DiaSemana, @NombreFuncionario, @OficinaId, @MedioContactoId, @TipoSolicitudId,
                  @Descripcion, @Observaciones, @ResponsableId, @DuracionEstimadaMin, @EstadoId, @PrioridadId,
-                 @FechaResolucion, @MinutosResolucion, N'APP', 1, @UsuarioId, @FechaIngreso, @UsuarioId, @FechaIngreso)
+                 @FechaResolucion, @MinutosResolucion, 'APP', 1, @UsuarioId, @FechaIngreso, @UsuarioId, @FechaIngreso)
             """,
             new
             {
@@ -230,7 +230,7 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         await using (var cn = await db.AbrirAsync(ct))
         {
             estadoResuelto = await cn.QueryFirstOrDefaultAsync<int?>(
-                "SELECT TOP (1) Id FROM dbo.Estado WHERE EsResuelto = 1 AND Activo = 1 ORDER BY Predeterminado DESC, Orden, Id")
+                "SELECT Id FROM Estado WHERE EsResuelto = TRUE AND Activo = TRUE ORDER BY Predeterminado DESC, Orden, Id LIMIT 1")
                 ?? throw ErrorApi.Validacion("No hay ningún estado activo marcado como resuelto. Revisá Configuración → Estados.");
         }
 
@@ -253,7 +253,7 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         var ahora = reloj.Ahora();
         var filas = await cn.ExecuteAsync(
             """
-            UPDATE dbo.Solicitud
+            UPDATE Solicitud
             SET EliminadoEn = @ahora, EliminadoPorId = @usuarioId, Version = Version + 1
             WHERE Id = @id AND EliminadoEn IS NULL
             """,
@@ -277,13 +277,13 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         await using var cn = await db.AbrirAsync(ct);
         using var tx = cn.BeginTransaction();
         var actual = await cn.QuerySingleOrDefaultAsync<SolicitudRegistro>(
-            "SELECT * FROM dbo.Solicitud WITH (UPDLOCK, ROWLOCK) WHERE Id = @id AND EliminadoEn IS NULL", new { id }, tx)
+            "SELECT * FROM Solicitud WHERE Id = @id AND EliminadoEn IS NULL FOR UPDATE", new { id }, tx)
             ?? throw ErrorApi.NoEncontrado("La solicitud no existe.");
 
         int? minutos = actual.FechaResolucion is DateTime resolucion ? Reloj.MinutosEntre(fecha, resolucion) : null;
         await cn.ExecuteAsync(
             """
-            UPDATE dbo.Solicitud
+            UPDATE Solicitud
             SET FechaIngreso = @fecha, DiaSemana = @dia, MinutosResolucion = @minutos,
                 Version = Version + 1, ActualizadoEn = @ahora, ActualizadoPorId = @usuarioId
             WHERE Id = @id
@@ -298,19 +298,19 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
     // ------------------------------------------------------------------ internos
 
     private async Task<List<ConflictoCampo>> AplicarCambiosAsync(
-        SqlConnection cn,
-        SqlTransaction tx,
+        NpgsqlConnection cn,
+        NpgsqlTransaction tx,
         int id,
         Dictionary<string, JsonElement> cambios,
         Dictionary<string, JsonElement>? baseCliente,
         UsuarioActual usuario)
     {
         var actual = await cn.QuerySingleOrDefaultAsync<SolicitudRegistro>(
-            "SELECT * FROM dbo.Solicitud WITH (UPDLOCK, ROWLOCK) WHERE Id = @id AND EliminadoEn IS NULL", new { id }, tx)
+            "SELECT * FROM Solicitud WHERE Id = @id AND EliminadoEn IS NULL FOR UPDATE", new { id }, tx)
             ?? throw ErrorApi.NoEncontrado("La solicitud no existe o fue eliminada.");
         var mapas = await CatalogosRepositorio.CargarMapasAsync(cn, tx);
         var oficinaActual = actual.OficinaId is int oficinaId
-            ? await cn.QuerySingleOrDefaultAsync<string>("SELECT Nombre FROM dbo.Oficina WHERE Id = @oficinaId", new { oficinaId }, tx)
+            ? await cn.QuerySingleOrDefaultAsync<string>("SELECT Nombre FROM Oficina WHERE Id = @oficinaId", new { oficinaId }, tx)
             : null;
         var ahora = reloj.Ahora();
 
@@ -335,7 +335,7 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
                 {
                     ultimoEditor ??= actual.ActualizadoPorId is int editorId
                         ? await cn.QuerySingleOrDefaultAsync<string>(
-                            "SELECT NombreCompleto FROM dbo.Usuario WHERE Id = @editorId", new { editorId }, tx)
+                            "SELECT NombreCompleto FROM Usuario WHERE Id = @editorId", new { editorId }, tx)
                         : "importación";
                     conflictos.Add(new ConflictoCampo(campo, etiqueta, TextoActual(campo, actual, oficinaActual, mapas),
                         ultimoEditor, actual.ActualizadoEn));
@@ -362,7 +362,7 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
                     var nuevoId = await OficinasRepositorio.ObtenerOCrearAsync(cn, tx, nombre, ahora);
                     if (nuevoId == actual.OficinaId) break;
                     var nombreFinal = nuevoId is int idOficina
-                        ? await cn.QuerySingleAsync<string>("SELECT Nombre FROM dbo.Oficina WHERE Id = @idOficina", new { idOficina }, tx)
+                        ? await cn.QuerySingleAsync<string>("SELECT Nombre FROM Oficina WHERE Id = @idOficina", new { idOficina }, tx)
                         : null;
                     sets.Add("OficinaId = @OficinaId");
                     p.Add("OficinaId", nuevoId);
@@ -461,7 +461,7 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         p.Add("ActualizadoEn", ahora);
         p.Add("ActualizadoPorId", usuario.Id);
         p.Add("IdSolicitud", id);
-        await cn.ExecuteAsync($"UPDATE dbo.Solicitud SET {string.Join(", ", sets)} WHERE Id = @IdSolicitud", p, tx);
+        await cn.ExecuteAsync($"UPDATE Solicitud SET {string.Join(", ", sets)} WHERE Id = @IdSolicitud", p, tx);
         await InsertarHistorialAsync(cn, tx, id, ahora, usuario.Id, historial);
         return conflictos;
 
@@ -562,17 +562,25 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
     private static string? UnificarSaltos(string? valor) => valor?.Replace("\r\n", "\n");
 
     /// <summary>Reserva el próximo número de solicitud. Nunca reutiliza números.</summary>
-    internal static Task<int> SiguienteIdAsync(IDbConnection cn, IDbTransaction tx) =>
-        cn.ExecuteScalarAsync<int>(
+    internal static async Task<int> SiguienteIdAsync(IDbConnection cn, IDbTransaction tx)
+    {
+        await AsegurarSecuenciaAsync(cn, tx);
+        // El UPDATE bloquea la fila de Secuencia hasta el fin de la transacción:
+        // dos altas simultáneas nunca reciben el mismo número.
+        return await cn.ExecuteScalarAsync<int>(
             """
-            IF NOT EXISTS (SELECT 1 FROM dbo.Secuencia WHERE Nombre = N'Solicitud')
-                INSERT INTO dbo.Secuencia (Nombre, UltimoValor) VALUES (N'Solicitud', 0);
-            DECLARE @maximo INT = (SELECT ISNULL(MAX(Id), 0) FROM dbo.Solicitud);
-            UPDATE dbo.Secuencia
-            SET UltimoValor = CASE WHEN UltimoValor > @maximo THEN UltimoValor ELSE @maximo END + 1
-            OUTPUT inserted.UltimoValor
-            WHERE Nombre = N'Solicitud';
+            UPDATE Secuencia
+            SET UltimoValor = GREATEST(UltimoValor, (SELECT COALESCE(MAX(Id), 0) FROM Solicitud)) + 1
+            WHERE Nombre = 'Solicitud'
+            RETURNING UltimoValor
             """,
+            transaction: tx);
+    }
+
+    /// <summary>Crea la fila de numeración de solicitudes si todavía no existe.</summary>
+    internal static Task AsegurarSecuenciaAsync(IDbConnection cn, IDbTransaction tx) =>
+        cn.ExecuteAsync(
+            "INSERT INTO Secuencia (Nombre, UltimoValor) VALUES ('Solicitud', 0) ON CONFLICT (Nombre) DO NOTHING",
             transaction: tx);
 
     internal static Task InsertarHistorialAsync(IDbConnection cn, IDbTransaction tx, int solicitudId, DateTime fecha,
@@ -592,7 +600,7 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         if (filas.Count == 0) return Task.CompletedTask;
         return cn.ExecuteAsync(
             """
-            INSERT INTO dbo.SolicitudHistorial (SolicitudId, FechaHora, UsuarioId, Accion, Campo, ValorAnterior, ValorNuevo, Detalle)
+            INSERT INTO SolicitudHistorial (SolicitudId, FechaHora, UsuarioId, Accion, Campo, ValorAnterior, ValorNuevo, Detalle)
             VALUES (@SolicitudId, @FechaHora, @UsuarioId, @Accion, @Campo, @ValorAnterior, @ValorNuevo, @Detalle)
             """,
             filas, tx);

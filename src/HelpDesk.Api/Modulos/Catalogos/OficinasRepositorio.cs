@@ -34,17 +34,22 @@ public sealed class OficinasRepositorio(BaseDatos db)
         var limpio = Texto.Recortar(Texto.LimpiarLinea(nombre), LargoNombre);
         if (limpio is null) return null;
 
+        // Bloqueo hasta el fin de la transacción para que dos usuarios no creen la misma oficina
+        // a la vez (equivale al UPDLOCK, HOLDLOCK de la versión SQL Server).
+        await cn.ExecuteAsync("SELECT pg_advisory_xact_lock(hashtext('HelpDesk.Oficina'))", transaction: tx);
+
         var existente = await cn.QueryFirstOrDefaultAsync<int?>(
             """
-            SELECT TOP (1) Id FROM dbo.Oficina WITH (UPDLOCK, HOLDLOCK)
-            WHERE Nombre COLLATE Latin1_General_CI_AI = @nombre COLLATE Latin1_General_CI_AI
+            SELECT Id FROM Oficina
+            WHERE normalizar(Nombre) = normalizar(@nombre)
             ORDER BY Activo DESC, Id
+            LIMIT 1
             """,
             new { nombre = limpio }, tx);
         if (existente is int id) return id;
 
         return await cn.ExecuteScalarAsync<int>(
-            "INSERT INTO dbo.Oficina (Nombre, Activo, CreadoEn) OUTPUT inserted.Id VALUES (@nombre, 1, @ahora)",
+            "INSERT INTO Oficina (Nombre, Activo, CreadoEn) VALUES (@nombre, TRUE, @ahora) RETURNING Id",
             new { nombre = limpio, ahora }, tx);
     }
 
@@ -55,11 +60,11 @@ public sealed class OficinasRepositorio(BaseDatos db)
         return (await cn.QueryAsync<OficinaItem>(
             """
             SELECT o.Id, o.Nombre, o.Activo,
-                   COUNT(s.Id) AS Solicitudes,
+                   CAST(COUNT(s.Id) AS INTEGER) AS Solicitudes,
                    MAX(s.FechaIngreso) AS UltimaSolicitud
-            FROM dbo.Oficina o
-            LEFT JOIN dbo.Solicitud s ON s.OficinaId = o.Id AND s.EliminadoEn IS NULL
-            WHERE @filtro IS NULL OR o.Nombre COLLATE Latin1_General_CI_AI LIKE @patron
+            FROM Oficina o
+            LEFT JOIN Solicitud s ON s.OficinaId = o.Id AND s.EliminadoEn IS NULL
+            WHERE @filtro IS NULL OR normalizar(o.Nombre) LIKE normalizar(@patron)
             GROUP BY o.Id, o.Nombre, o.Activo
             ORDER BY o.Nombre
             """,
@@ -74,25 +79,25 @@ public sealed class OficinasRepositorio(BaseDatos db)
         await using var cn = await db.AbrirAsync(ct);
         using var tx = cn.BeginTransaction();
         var anterior = await cn.QuerySingleOrDefaultAsync<OficinaItem>(
-            "SELECT Id, Nombre, Activo FROM dbo.Oficina WHERE Id = @id", new { id }, tx)
+            "SELECT Id, Nombre, Activo FROM Oficina WHERE Id = @id", new { id }, tx)
             ?? throw ErrorApi.NoEncontrado("La oficina no existe.");
 
         var duplicada = await cn.ExecuteScalarAsync<int?>(
-            "SELECT TOP (1) Id FROM dbo.Oficina WHERE Id <> @id AND Nombre COLLATE Latin1_General_CI_AI = @nombre COLLATE Latin1_General_CI_AI",
+            "SELECT Id FROM Oficina WHERE Id <> @id AND normalizar(Nombre) = normalizar(@nombre) LIMIT 1",
             new { id, nombre }, tx);
         if (duplicada is not null)
             throw ErrorApi.Conflicto("Ya existe otra oficina con ese nombre. Usá \"Unificar\" para juntarlas.");
 
-        await cn.ExecuteAsync("UPDATE dbo.Oficina SET Nombre = @nombre, Activo = @activo WHERE Id = @id",
+        await cn.ExecuteAsync("UPDATE Oficina SET Nombre = @nombre, Activo = @activo WHERE Id = @id",
             new { id, nombre, activo = entrada.Activo ?? anterior.Activo }, tx);
 
         if (!string.Equals(anterior.Nombre, nombre, StringComparison.Ordinal))
         {
             await cn.ExecuteAsync(
                 """
-                INSERT INTO dbo.SolicitudHistorial (SolicitudId, FechaHora, UsuarioId, Accion, Campo, ValorAnterior, ValorNuevo, Detalle)
-                SELECT s.Id, @ahora, @usuarioId, N'MODIFICADA', N'Oficina', @anterior, @nuevo, N'Oficina renombrada desde Configuración'
-                FROM dbo.Solicitud s WHERE s.OficinaId = @id
+                INSERT INTO SolicitudHistorial (SolicitudId, FechaHora, UsuarioId, Accion, Campo, ValorAnterior, ValorNuevo, Detalle)
+                SELECT s.Id, @ahora, @usuarioId, 'MODIFICADA', 'Oficina', @anterior, @nuevo, 'Oficina renombrada desde Configuración'
+                FROM Solicitud s WHERE s.OficinaId = @id
                 """,
                 new { ahora, usuarioId = usuario.Id, anterior = anterior.Nombre, nuevo = nombre, id }, tx);
         }
@@ -113,23 +118,23 @@ public sealed class OficinasRepositorio(BaseDatos db)
 
         await using var cn = await db.AbrirAsync(ct);
         using var tx = cn.BeginTransaction();
-        var origen = await cn.QuerySingleOrDefaultAsync<string>("SELECT Nombre FROM dbo.Oficina WHERE Id = @origenId", new { origenId }, tx)
+        var origen = await cn.QuerySingleOrDefaultAsync<string>("SELECT Nombre FROM Oficina WHERE Id = @origenId", new { origenId }, tx)
             ?? throw ErrorApi.NoEncontrado("La oficina de origen no existe.");
-        var destino = await cn.QuerySingleOrDefaultAsync<string>("SELECT Nombre FROM dbo.Oficina WHERE Id = @destinoId", new { destinoId }, tx)
+        var destino = await cn.QuerySingleOrDefaultAsync<string>("SELECT Nombre FROM Oficina WHERE Id = @destinoId", new { destinoId }, tx)
             ?? throw ErrorApi.NoEncontrado("La oficina de destino no existe.");
 
         await cn.ExecuteAsync(
             """
-            INSERT INTO dbo.SolicitudHistorial (SolicitudId, FechaHora, UsuarioId, Accion, Campo, ValorAnterior, ValorNuevo, Detalle)
-            SELECT s.Id, @ahora, @usuarioId, N'MODIFICADA', N'Oficina', @origen, @destino, N'Unificación de oficinas'
-            FROM dbo.Solicitud s WHERE s.OficinaId = @origenId
+            INSERT INTO SolicitudHistorial (SolicitudId, FechaHora, UsuarioId, Accion, Campo, ValorAnterior, ValorNuevo, Detalle)
+            SELECT s.Id, @ahora, @usuarioId, 'MODIFICADA', 'Oficina', @origen, @destino, 'Unificación de oficinas'
+            FROM Solicitud s WHERE s.OficinaId = @origenId
             """,
             new { ahora, usuarioId = usuario.Id, origen, destino, origenId }, tx);
 
         var movidas = await cn.ExecuteAsync(
-            "UPDATE dbo.Solicitud SET OficinaId = @destinoId, Version = Version + 1 WHERE OficinaId = @origenId",
+            "UPDATE Solicitud SET OficinaId = @destinoId, Version = Version + 1 WHERE OficinaId = @origenId",
             new { origenId, destinoId }, tx);
-        await cn.ExecuteAsync("DELETE FROM dbo.Oficina WHERE Id = @origenId", new { origenId }, tx);
+        await cn.ExecuteAsync("DELETE FROM Oficina WHERE Id = @origenId", new { origenId }, tx);
 
         await RegistroAuditoria.RegistrarAsync(cn, tx, usuario.Id, ahora, "Oficina", origenId.ToString(CultureInfo.InvariantCulture),
             "UNIFICADA", new { origen, destino, destinoId, solicitudesMovidas = movidas });

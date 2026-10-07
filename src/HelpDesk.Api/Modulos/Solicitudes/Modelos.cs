@@ -55,7 +55,7 @@ public sealed class HistorialItem
     public string? Detalle { get; set; }
 }
 
-/// <summary>Fila cruda de dbo.Solicitud (para actualizar).</summary>
+/// <summary>Fila cruda de Solicitud (para actualizar).</summary>
 public sealed class SolicitudRegistro
 {
     public int Id { get; set; }
@@ -130,5 +130,5 @@ public sealed class Contadores
     public int Hoy { get; set; }
 }
 
-/// <summary>Un cambio que se registrará en dbo.SolicitudHistorial.</summary>
+/// <summary>Un cambio que se registrará en SolicitudHistorial.</summary>
 public sealed record CambioHistorial(string Accion, string? Campo, string? ValorAnterior, string? ValorNuevo, string? Detalle);

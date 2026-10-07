@@ -131,11 +131,12 @@ public static class ImportacionEndpoints
         await using var cn = await db.AbrirAsync(ct);
         var filas = await cn.QueryAsync<ImportacionHistorica>(
             """
-            SELECT TOP (50) i.Id, i.FechaHora, u.NombreCompleto AS Usuario, i.NombreArchivo, i.FilasLeidas, i.SolicitudesNuevas,
+            SELECT i.Id, i.FechaHora, u.NombreCompleto AS Usuario, i.NombreArchivo, i.FilasLeidas, i.SolicitudesNuevas,
                    i.SolicitudesExistentes, i.FilasConError, i.FilasConAdvertencia, i.TareasExtraNuevas
-            FROM dbo.Importacion i
-            LEFT JOIN dbo.Usuario u ON u.Id = i.UsuarioId
+            FROM Importacion i
+            LEFT JOIN Usuario u ON u.Id = i.UsuarioId
             ORDER BY i.Id DESC
+            LIMIT 50
             """);
         return Results.Ok(filas);
     }

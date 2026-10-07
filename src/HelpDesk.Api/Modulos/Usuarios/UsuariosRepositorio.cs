@@ -1,6 +1,6 @@
 namespace HelpDesk.Api.Modulos.Usuarios;
 
-/// <summary>Fila de dbo.Usuario.</summary>
+/// <summary>Fila de la tabla Usuario.</summary>
 public sealed class UsuarioRegistro
 {
     public int Id { get; set; }
@@ -46,27 +46,27 @@ public sealed class UsuariosRepositorio(BaseDatos db)
     private const string SelectVista = """
         SELECT u.Id, u.NombreUsuario AS Usuario, u.NombreCompleto AS Nombre, u.Rol, u.ResponsableId,
                r.Nombre AS Responsable, u.Activo, u.DebeCambiarPassword, u.CreadoEn, u.UltimoAcceso
-        FROM dbo.Usuario u
-        LEFT JOIN dbo.Responsable r ON r.Id = u.ResponsableId
+        FROM Usuario u
+        LEFT JOIN Responsable r ON r.Id = u.ResponsableId
         """;
 
     public async Task<UsuarioRegistro?> ObtenerAsync(int id, CancellationToken ct = default)
     {
         await using var cn = await db.AbrirAsync(ct);
-        return await cn.QuerySingleOrDefaultAsync<UsuarioRegistro>("SELECT * FROM dbo.Usuario WHERE Id = @id", new { id });
+        return await cn.QuerySingleOrDefaultAsync<UsuarioRegistro>("SELECT * FROM Usuario WHERE Id = @id", new { id });
     }
 
     public async Task<UsuarioRegistro?> ObtenerPorNombreUsuarioAsync(string nombreUsuario, CancellationToken ct = default)
     {
         await using var cn = await db.AbrirAsync(ct);
         return await cn.QuerySingleOrDefaultAsync<UsuarioRegistro>(
-            "SELECT * FROM dbo.Usuario WHERE NombreUsuario = @nombreUsuario", new { nombreUsuario });
+            "SELECT * FROM Usuario WHERE lower(NombreUsuario) = lower(@nombreUsuario)", new { nombreUsuario });
     }
 
     public async Task RegistrarAccesoAsync(int id, DateTime ahora)
     {
         await using var cn = await db.AbrirAsync();
-        await cn.ExecuteAsync("UPDATE dbo.Usuario SET UltimoAcceso = @ahora WHERE Id = @id", new { id, ahora });
+        await cn.ExecuteAsync("UPDATE Usuario SET UltimoAcceso = @ahora WHERE Id = @id", new { id, ahora });
     }
 
     public async Task<List<UsuarioVista>> ListarAsync(CancellationToken ct)
@@ -92,9 +92,9 @@ public sealed class UsuariosRepositorio(BaseDatos db)
         await ValidarResponsableAsync(cn, tx, entrada.ResponsableId);
         var id = await cn.ExecuteScalarAsync<int>(
             """
-            INSERT INTO dbo.Usuario (NombreUsuario, NombreCompleto, PasswordHash, Rol, ResponsableId, Activo, DebeCambiarPassword, CreadoEn)
-            OUTPUT inserted.Id
-            VALUES (@nombreUsuario, @nombre, @hash, @rol, @responsableId, 1, 1, @ahora)
+            INSERT INTO Usuario (NombreUsuario, NombreCompleto, PasswordHash, Rol, ResponsableId, Activo, DebeCambiarPassword, CreadoEn)
+            VALUES (@nombreUsuario, @nombre, @hash, @rol, @responsableId, TRUE, TRUE, @ahora)
+            RETURNING Id
             """,
             new { nombreUsuario, nombre, hash = Contrasenas.Hashear(entrada.Password!), rol, responsableId = entrada.ResponsableId, ahora },
             tx);
@@ -109,7 +109,7 @@ public sealed class UsuariosRepositorio(BaseDatos db)
         await using var cn = await db.AbrirAsync(ct);
         using var tx = cn.BeginTransaction();
         var actual = await cn.QuerySingleOrDefaultAsync<UsuarioRegistro>(
-            "SELECT * FROM dbo.Usuario WITH (UPDLOCK) WHERE Id = @id", new { id }, tx)
+            "SELECT * FROM Usuario WHERE Id = @id FOR UPDATE", new { id }, tx)
             ?? throw ErrorApi.NoEncontrado("El usuario no existe.");
 
         var nombre = Texto.LimpiarLinea(entrada.Nombre) ?? actual.NombreCompleto;
@@ -124,15 +124,15 @@ public sealed class UsuariosRepositorio(BaseDatos db)
         var cambiaSeguridad = rol != actual.Rol || activo != actual.Activo;
         await cn.ExecuteAsync(
             $"""
-            UPDATE dbo.Usuario
+            UPDATE Usuario
             SET NombreCompleto = @nombre, Rol = @rol, ResponsableId = @responsableId, Activo = @activo
-                {(cambiaSeguridad ? ", SelloSeguridad = NEWID()" : "")}
+                {(cambiaSeguridad ? ", SelloSeguridad = gen_random_uuid()" : "")}
             WHERE Id = @id
             """,
             new { id, nombre, rol, responsableId = entrada.ResponsableId, activo }, tx);
 
         var adminsActivos = await cn.ExecuteScalarAsync<int>(
-            "SELECT COUNT(*) FROM dbo.Usuario WHERE Rol = N'ADMIN' AND Activo = 1", transaction: tx);
+            "SELECT COUNT(*) FROM Usuario WHERE Rol = 'ADMIN' AND Activo = TRUE", transaction: tx);
         if (adminsActivos == 0) throw ErrorApi.Validacion("Tiene que quedar al menos un administrador activo.");
 
         await RegistroAuditoria.RegistrarAsync(cn, tx, admin.Id, ahora, "Usuario", id.ToString(CultureInfo.InvariantCulture), "MODIFICADO",
@@ -154,7 +154,7 @@ public sealed class UsuariosRepositorio(BaseDatos db)
         await using var cn = await db.AbrirAsync(ct);
         using var tx = cn.BeginTransaction();
         var filas = await cn.ExecuteAsync(
-            "UPDATE dbo.Usuario SET PasswordHash = @hash, DebeCambiarPassword = 1, SelloSeguridad = NEWID() WHERE Id = @id",
+            "UPDATE Usuario SET PasswordHash = @hash, DebeCambiarPassword = TRUE, SelloSeguridad = gen_random_uuid() WHERE Id = @id",
             new { id, hash = Contrasenas.Hashear(password!) }, tx);
         if (filas == 0) throw ErrorApi.NoEncontrado("El usuario no existe.");
         await RegistroAuditoria.RegistrarAsync(cn, tx, admin.Id, ahora, "Usuario", id.ToString(CultureInfo.InvariantCulture), "PASSWORD_RESTABLECIDA");
@@ -170,7 +170,7 @@ public sealed class UsuariosRepositorio(BaseDatos db)
         await using var cn = await db.AbrirAsync(ct);
         using var tx = cn.BeginTransaction();
         var usuario = await cn.QuerySingleOrDefaultAsync<UsuarioRegistro>(
-            "SELECT * FROM dbo.Usuario WITH (UPDLOCK) WHERE Id = @id", new { id }, tx)
+            "SELECT * FROM Usuario WHERE Id = @id FOR UPDATE", new { id }, tx)
             ?? throw ErrorApi.NoEncontrado("El usuario no existe.");
         if (!Contrasenas.Verificar(actual ?? "", usuario.PasswordHash))
             throw ErrorApi.Validacion("La contraseña actual no es correcta.");
@@ -179,7 +179,7 @@ public sealed class UsuariosRepositorio(BaseDatos db)
 
         var sello = Guid.NewGuid();
         await cn.ExecuteAsync(
-            "UPDATE dbo.Usuario SET PasswordHash = @hash, DebeCambiarPassword = 0, SelloSeguridad = @sello WHERE Id = @id",
+            "UPDATE Usuario SET PasswordHash = @hash, DebeCambiarPassword = FALSE, SelloSeguridad = @sello WHERE Id = @id",
             new { id, hash = Contrasenas.Hashear(nueva!), sello }, tx);
         await RegistroAuditoria.RegistrarAsync(cn, tx, id, ahora, "Usuario", id.ToString(CultureInfo.InvariantCulture), "PASSWORD_CAMBIADA");
         tx.Commit();
@@ -193,7 +193,7 @@ public sealed class UsuariosRepositorio(BaseDatos db)
     public async Task AsegurarAdministradorInicialAsync(OpcionesHelpDesk opciones, Reloj reloj, ILogger log, string carpetaContenido)
     {
         await using var cn = await db.AbrirAsync();
-        var hayUsuarios = await cn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.Usuario");
+        var hayUsuarios = await cn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM Usuario");
         if (hayUsuarios > 0) return;
 
         var password = string.IsNullOrWhiteSpace(opciones.PasswordAdminInicial)
@@ -201,8 +201,8 @@ public sealed class UsuariosRepositorio(BaseDatos db)
             : opciones.PasswordAdminInicial!;
         await cn.ExecuteAsync(
             """
-            INSERT INTO dbo.Usuario (NombreUsuario, NombreCompleto, PasswordHash, Rol, Activo, DebeCambiarPassword, CreadoEn)
-            VALUES (N'admin', N'Administrador', @hash, N'ADMIN', 1, 1, @ahora)
+            INSERT INTO Usuario (NombreUsuario, NombreCompleto, PasswordHash, Rol, Activo, DebeCambiarPassword, CreadoEn)
+            VALUES ('admin', 'Administrador', @hash, 'ADMIN', TRUE, TRUE, @ahora)
             """,
             new { hash = Contrasenas.Hashear(password), ahora = reloj.Ahora() });
 
@@ -230,7 +230,7 @@ public sealed class UsuariosRepositorio(BaseDatos db)
     private static async Task ValidarResponsableAsync(IDbConnection cn, IDbTransaction tx, int? responsableId)
     {
         if (responsableId is not int rid) return;
-        var existe = await cn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.Responsable WHERE Id = @rid", new { rid }, tx);
+        var existe = await cn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM Responsable WHERE Id = @rid", new { rid }, tx);
         if (existe == 0) throw ErrorApi.Validacion("El responsable indicado no existe.");
     }
 }

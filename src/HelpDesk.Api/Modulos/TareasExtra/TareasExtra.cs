@@ -39,10 +39,10 @@ public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj)
     private const string Select = """
         SELECT te.Id, te.AreaAsseId, a.Nombre AS Area, te.Tarea, te.Impacto, te.CargaTrabajo, te.Origen,
                te.CreadoEn, uc.NombreCompleto AS CreadoPor, te.ActualizadoEn, ua.NombreCompleto AS ActualizadoPor
-        FROM dbo.TareaExtra te
-        LEFT JOIN dbo.AreaAsse a ON a.Id = te.AreaAsseId
-        LEFT JOIN dbo.Usuario uc ON uc.Id = te.CreadoPorId
-        LEFT JOIN dbo.Usuario ua ON ua.Id = te.ActualizadoPorId
+        FROM TareaExtra te
+        LEFT JOIN AreaAsse a ON a.Id = te.AreaAsseId
+        LEFT JOIN Usuario uc ON uc.Id = te.CreadoPorId
+        LEFT JOIN Usuario ua ON ua.Id = te.ActualizadoPorId
         """;
 
     public async Task<List<TareaExtraFila>> ListarAsync(string? texto, int? areaId, CancellationToken ct)
@@ -58,10 +58,10 @@ public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj)
         if (limpio is not null)
         {
             where.Append("""
-                 AND (te.Tarea COLLATE Latin1_General_CI_AI LIKE @texto
-                  OR te.Impacto COLLATE Latin1_General_CI_AI LIKE @texto
-                  OR te.CargaTrabajo COLLATE Latin1_General_CI_AI LIKE @texto
-                  OR a.Nombre COLLATE Latin1_General_CI_AI LIKE @texto)
+                 AND (normalizar(te.Tarea) LIKE normalizar(@texto)
+                  OR normalizar(te.Impacto) LIKE normalizar(@texto)
+                  OR normalizar(te.CargaTrabajo) LIKE normalizar(@texto)
+                  OR normalizar(a.Nombre) LIKE normalizar(@texto))
                 """);
             p.Add("texto", "%" + Texto.EscaparLike(limpio) + "%");
         }
@@ -93,14 +93,14 @@ public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj)
         using var tx = cn.BeginTransaction();
 
         if (entrada.AreaAsseId is int areaId &&
-            await cn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.AreaAsse WHERE Id = @areaId", new { areaId }, tx) == 0)
+            await cn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM AreaAsse WHERE Id = @areaId", new { areaId }, tx) == 0)
         {
             throw ErrorApi.Validacion("El área indicada no existe.");
         }
         if (implicados.Count > 0)
         {
             var existentes = await cn.ExecuteScalarAsync<int>(
-                "SELECT COUNT(*) FROM dbo.Responsable WHERE Id IN @implicados", new { implicados }, tx);
+                "SELECT COUNT(*) FROM Responsable WHERE Id = ANY(@implicados)", new { implicados = implicados.ToArray() }, tx);
             if (existentes != implicados.Count) throw ErrorApi.Validacion("Alguno de los implicados no existe.");
         }
 
@@ -109,23 +109,23 @@ public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj)
         {
             var filas = await cn.ExecuteAsync(
                 """
-                UPDATE dbo.TareaExtra
+                UPDATE TareaExtra
                 SET AreaAsseId = @area, Tarea = @tarea, Impacto = @impacto, CargaTrabajo = @carga,
                     ActualizadoEn = @ahora, ActualizadoPorId = @usuarioId
                 WHERE Id = @id AND EliminadoEn IS NULL
                 """,
                 new { id = existente, area = entrada.AreaAsseId, tarea, impacto, carga, ahora, usuarioId = usuario.Id }, tx);
             if (filas == 0) throw ErrorApi.NoEncontrado("La tarea no existe.");
-            await cn.ExecuteAsync("DELETE FROM dbo.TareaExtraImplicado WHERE TareaExtraId = @id", new { id = existente }, tx);
+            await cn.ExecuteAsync("DELETE FROM TareaExtraImplicado WHERE TareaExtraId = @id", new { id = existente }, tx);
             idFinal = existente;
         }
         else
         {
             idFinal = await cn.ExecuteScalarAsync<int>(
                 """
-                INSERT INTO dbo.TareaExtra (AreaAsseId, Tarea, Impacto, CargaTrabajo, Origen, CreadoPorId, CreadoEn, ActualizadoPorId, ActualizadoEn)
-                OUTPUT inserted.Id
-                VALUES (@area, @tarea, @impacto, @carga, N'APP', @usuarioId, @ahora, @usuarioId, @ahora)
+                INSERT INTO TareaExtra (AreaAsseId, Tarea, Impacto, CargaTrabajo, Origen, CreadoPorId, CreadoEn, ActualizadoPorId, ActualizadoEn)
+                VALUES (@area, @tarea, @impacto, @carga, 'APP', @usuarioId, @ahora, @usuarioId, @ahora)
+                RETURNING Id
                 """,
                 new { area = entrada.AreaAsseId, tarea, impacto, carga, ahora, usuarioId = usuario.Id }, tx);
         }
@@ -133,7 +133,7 @@ public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj)
         if (implicados.Count > 0)
         {
             await cn.ExecuteAsync(
-                "INSERT INTO dbo.TareaExtraImplicado (TareaExtraId, ResponsableId) VALUES (@TareaExtraId, @ResponsableId)",
+                "INSERT INTO TareaExtraImplicado (TareaExtraId, ResponsableId) VALUES (@TareaExtraId, @ResponsableId)",
                 implicados.Select(r => new { TareaExtraId = idFinal, ResponsableId = r }).ToList(), tx);
         }
 
@@ -150,7 +150,7 @@ public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj)
         using var tx = cn.BeginTransaction();
         var ahora = reloj.Ahora();
         var filas = await cn.ExecuteAsync(
-            "UPDATE dbo.TareaExtra SET EliminadoEn = @ahora, EliminadoPorId = @usuarioId WHERE Id = @id AND EliminadoEn IS NULL",
+            "UPDATE TareaExtra SET EliminadoEn = @ahora, EliminadoPorId = @usuarioId WHERE Id = @id AND EliminadoEn IS NULL",
             new { id, ahora, usuarioId = usuario.Id }, tx);
         if (filas == 0) throw ErrorApi.NoEncontrado("La tarea no existe.");
         await RegistroAuditoria.RegistrarAsync(cn, tx, usuario.Id, ahora, "TareaExtra", id.ToString(CultureInfo.InvariantCulture), "ELIMINADO");
@@ -164,12 +164,12 @@ public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj)
         var implicados = await cn.QueryAsync<ImplicadoItem>(
             """
             SELECT ti.TareaExtraId, r.Id, r.Nombre, r.Activo
-            FROM dbo.TareaExtraImplicado ti
-            JOIN dbo.Responsable r ON r.Id = ti.ResponsableId
-            WHERE ti.TareaExtraId IN @ids
+            FROM TareaExtraImplicado ti
+            JOIN Responsable r ON r.Id = ti.ResponsableId
+            WHERE ti.TareaExtraId = ANY(@ids)
             ORDER BY r.Orden, r.Nombre
             """,
-            new { ids }, tx);
+            new { ids = ids.ToArray() }, tx);
         var porTarea = implicados.ToLookup(i => i.TareaExtraId);
         foreach (var tarea in tareas)
         {

@@ -41,15 +41,15 @@ public sealed class ReportesServicio(BaseDatos db, Reloj reloj)
 
     private static readonly Dictionary<string, Dimension> Dimensiones = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["mes"] = new("CONVERT(NVARCHAR(7), s.FechaIngreso, 126)", "Mes", true),
-        ["dia"] = new("CONVERT(NVARCHAR(1), s.DiaSemana)", "Día de la semana", true),
-        ["hora"] = new("RIGHT(N'0' + CONVERT(NVARCHAR(2), DATEPART(HOUR, s.FechaIngreso)), 2)", "Hora de ingreso", true),
-        ["tipo"] = new("ISNULL(t.Codigo, N'(sin tipo)')", "Tipo", false),
-        ["responsable"] = new("ISNULL(r.Nombre, N'(sin responsable)')", "Responsable", false),
-        ["oficina"] = new("ISNULL(o.Nombre, N'(sin oficina)')", "Oficina", false),
-        ["medio"] = new("ISNULL(m.Nombre, N'(sin medio)')", "Medio de contacto", false),
-        ["prioridad"] = new("ISNULL(p.Nombre, N'(sin prioridad)')", "Prioridad", false),
-        ["estado"] = new("ISNULL(e.Nombre, N'(sin estado)')", "Estado", false),
+        ["mes"] = new("to_char(s.FechaIngreso, 'YYYY-MM')", "Mes", true),
+        ["dia"] = new("CAST(s.DiaSemana AS TEXT)", "Día de la semana", true),
+        ["hora"] = new("to_char(s.FechaIngreso, 'HH24')", "Hora de ingreso", true),
+        ["tipo"] = new("COALESCE(t.Codigo, '(sin tipo)')", "Tipo", false),
+        ["responsable"] = new("COALESCE(r.Nombre, '(sin responsable)')", "Responsable", false),
+        ["oficina"] = new("COALESCE(o.Nombre, '(sin oficina)')", "Oficina", false),
+        ["medio"] = new("COALESCE(m.Nombre, '(sin medio)')", "Medio de contacto", false),
+        ["prioridad"] = new("COALESCE(p.Nombre, '(sin prioridad)')", "Prioridad", false),
+        ["estado"] = new("COALESCE(e.Nombre, '(sin estado)')", "Estado", false),
     };
 
     public static IEnumerable<object> DimensionesDisponibles() =>
@@ -67,10 +67,10 @@ public sealed class ReportesServicio(BaseDatos db, Reloj reloj)
 
         var p = new DynamicParameters();
         var where = ConsultaSolicitudes.Where(filtro, usuario, reloj.Hoy(), p);
-        var expr2 = d2?.Expresion ?? "N''";
+        var expr2 = d2?.Expresion ?? "CAST('' AS TEXT)";
         var sql = $"""
             SELECT {d1.Expresion} AS Clave1, {expr2} AS Clave2, COUNT(*) AS Cantidad,
-                   ISNULL(SUM(CAST(s.DuracionEstimadaMin AS BIGINT)), 0) AS Minutos
+                   COALESCE(SUM(s.DuracionEstimadaMin), 0) AS Minutos
             {ConsultaSolicitudes.Desde}
             {where}
             GROUP BY {d1.Expresion}{(d2 is null ? "" : ", " + d2.Expresion)}

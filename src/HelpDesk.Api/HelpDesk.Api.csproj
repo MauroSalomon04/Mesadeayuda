@@ -14,7 +14,7 @@
 
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.*" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.*" />
+    <PackageReference Include="Npgsql" Version="9.0.*" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.*" />
   </ItemGroup>
 

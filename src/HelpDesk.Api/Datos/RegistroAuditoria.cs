@@ -1,6 +1,6 @@
 namespace HelpDesk.Api.Datos;
 
-/// <summary>Registra acciones administrativas en dbo.Auditoria.</summary>
+/// <summary>Registra acciones administrativas en Auditoria.</summary>
 public static class RegistroAuditoria
 {
     public static Task RegistrarAsync(
@@ -15,7 +15,7 @@ public static class RegistroAuditoria
     {
         return cn.ExecuteAsync(
             """
-            INSERT INTO dbo.Auditoria (FechaHora, UsuarioId, Entidad, EntidadId, Accion, Detalle)
+            INSERT INTO Auditoria (FechaHora, UsuarioId, Entidad, EntidadId, Accion, Detalle)
             VALUES (@fecha, @usuarioId, @entidad, @entidadId, @accion, @detalle)
             """,
             new

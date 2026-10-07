@@ -5,20 +5,35 @@ Reemplaza al Excel compartido de la mesa de ayuda **sin cambiar la forma de trab
 12 campos y los mismos valores, pero con número y fecha automáticos, historial de cambios, búsqueda
 de casos anteriores, pendientes, estadísticas y exportación a Excel.
 
-- **Backend:** C# / ASP.NET Core 10 (Minimal APIs + Dapper)
-- **Base de datos:** SQL Server 2017 o superior (también Express o LocalDB)
-- **Interfaz:** React + TypeScript, ya compilada dentro de `src/HelpDesk.Api/wwwroot`
+- **Backend:** C# / ASP.NET Core 10 (Minimal APIs + Dapper + Npgsql)
+- **Base de datos:** PostgreSQL 14 o superior (en Docker, PostgreSQL 17)
+- **Interfaz:** React + TypeScript (esbuild); en Docker la sirve nginx. También queda compilada
+  dentro de `src/HelpDesk.Api/wwwroot` para usarla sin Docker.
 - **Sin servicios externos:** no usa CDN, fuentes de internet ni telemetría.
 
-## Puesta en marcha rápida (PC con Windows)
+## Puesta en marcha con Docker (recomendado)
 
-1. Instalar el **SDK de .NET 10** (https://dotnet.microsoft.com/download) y tener un **SQL Server**
-   (puede ser SQL Server Express o LocalDB).
+```
+cp .env.example .env        # opcional: cambiar POSTGRES_PASSWORD y ADMIN_PASSWORD_INICIAL
+docker compose up --build
+```
+
+Levanta tres contenedores: `frontend` (nginx, http://localhost:8080) → `backend` (ASP.NET Core) →
+`postgres` (PostgreSQL 17, datos en el volumen `postgres-data`). La primera vez se crean la base, las
+tablas y los catálogos iniciales, y el usuario `admin` (contraseña `ADMIN_PASSWORD_INICIAL`, o la que
+aparece en `docker compose logs backend` si se dejó vacía).
+
+Luego: **Configuración → Importar Excel** para cargar el registro histórico y **Configuración → Usuarios**
+para crear los usuarios de la mesa. Detalles, comandos y respaldos: [`docs/INSTALACION.md`](docs/INSTALACION.md).
+
+## Puesta en marcha sin Docker (PC con Windows)
+
+1. Instalar el **SDK de .NET 10** (https://dotnet.microsoft.com/download) y **PostgreSQL**.
 2. Revisar la cadena de conexión en `src/HelpDesk.Api/appsettings.json`
-   (`ConnectionStrings:HelpDesk`). Por defecto usa `Server=localhost` con autenticación de Windows.
+   (`ConnectionStrings:HelpDesk`). Por defecto: `Host=localhost;Port=5432;Database=helpdeskasse;Username=helpdesk;Password=helpdesk`.
 3. Ejecutar `iniciar.bat` (o, en una consola, `cd src/HelpDesk.Api` y `dotnet run`).
    También se puede abrir `HelpDeskAsse.sln` con Visual Studio 2022 y ejecutar con F5.
-   La primera vez crea la base `HelpDeskAsse`, sus tablas y los catálogos iniciales.
+   La primera vez crea la base `helpdeskasse`, sus tablas y los catálogos iniciales.
 4. Abrir **http://localhost:5080** e ingresar con el usuario `admin`. La contraseña inicial
    aparece en la consola y en `src/HelpDesk.Api/admin-password-inicial.txt`. Se pide cambiarla al entrar.
 5. Ir a **Configuración → Importar Excel**, cargar el registro histórico y confirmar.
@@ -42,9 +57,11 @@ Instrucciones completas (servidor, servicio de Windows, IIS, HTTPS, respaldos y 
 ## Estructura
 
 ```
-database/               Scripts T-SQL (esquema y datos iniciales). Se aplican solos al iniciar.
-src/HelpDesk.Api/       Backend ASP.NET Core + interfaz compilada (wwwroot)
-src/HelpDesk.Web/       Código fuente de la interfaz (React + TypeScript)
+database/               Scripts de PostgreSQL (esquema y datos iniciales). Se aplican solos.
+src/HelpDesk.Api/       Backend ASP.NET Core + interfaz compilada (wwwroot) + Dockerfile
+src/HelpDesk.Web/       Código fuente de la interfaz (React + TypeScript) + Dockerfile y nginx.conf
+docker-compose.yml      Servicios frontend, backend y postgres
+.env.example            Variables de entorno de Docker Compose (copiar como .env)
 docs/                   Arquitectura e instalación
 HelpDeskAsse.sln        Solución para Visual Studio
 iniciar.bat             Arranque rápido para probar en una PC

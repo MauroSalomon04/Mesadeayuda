@@ -389,7 +389,7 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
     {
         await using var cn = await db.AbrirAsync(ct);
 
-        var existentes = (await cn.QueryAsync<int>("SELECT Id FROM dbo.Solicitud")).ToHashSet();
+        var existentes = (await cn.QueryAsync<int>("SELECT Id FROM Solicitud")).ToHashSet();
         foreach (var fila in analisis.Solicitudes)
         {
             fila.Existente = existentes.Contains(fila.Id);
@@ -398,7 +398,7 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
         var tareasExistentes = (await cn.QueryAsync<(string? Area, string Tarea)>(
                 """
                 SELECT a.Nombre AS Area, te.Tarea
-                FROM dbo.TareaExtra te LEFT JOIN dbo.AreaAsse a ON a.Id = te.AreaAsseId
+                FROM TareaExtra te LEFT JOIN AreaAsse a ON a.Id = te.AreaAsseId
                 WHERE te.EliminadoEn IS NULL
                 """))
             .Select(t => ClaveTarea(t.Area, t.Tarea))
@@ -410,8 +410,8 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
 
         // Valores de catálogos que no existen y se crearán.
         var catalogos = await CatalogosRepositorio.CargarMapasAsync(cn, null);
-        var areas = await cn.QueryAsync<string>("SELECT Nombre FROM dbo.AreaAsse");
-        var oficinas = (await cn.QueryAsync<string>("SELECT Nombre FROM dbo.Oficina")).Select(Texto.Normalizar).ToHashSet();
+        var areas = await cn.QueryAsync<string>("SELECT Nombre FROM AreaAsse");
+        var oficinas = (await cn.QueryAsync<string>("SELECT Nombre FROM Oficina")).Select(Texto.Normalizar).ToHashSet();
         var nuevas = analisis.Solicitudes.Where(s => !s.Existente).ToList();
         var tareasNuevas = analisis.Tareas.Where(t => !t.Existente).ToList();
 
@@ -459,14 +459,17 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
         using var tx = cn.BeginTransaction();
 
         // Volver a verificar existentes dentro de la transacción (otro usuario pudo importar mientras tanto).
-        var existentes = (await cn.QueryAsync<int>("SELECT Id FROM dbo.Solicitud WITH (UPDLOCK, HOLDLOCK)", transaction: tx)).ToHashSet();
+        // Bloquea altas concurrentes de solicitudes hasta el fin de la importación
+        // (equivale al UPDLOCK, HOLDLOCK de la versión SQL Server).
+        await cn.ExecuteAsync("LOCK TABLE Solicitud IN SHARE ROW EXCLUSIVE MODE", transaction: tx);
+        var existentes = (await cn.QueryAsync<int>("SELECT Id FROM Solicitud", transaction: tx)).ToHashSet();
         var nuevas = analisis.Solicitudes.Where(s => !existentes.Contains(s.Id)).ToList();
         var existentesEnArchivo = analisis.Solicitudes.Count - nuevas.Count;
 
         var tareasActuales = (await cn.QueryAsync<(string? Area, string Tarea)>(
                 """
                 SELECT a.Nombre AS Area, te.Tarea
-                FROM dbo.TareaExtra te LEFT JOIN dbo.AreaAsse a ON a.Id = te.AreaAsseId
+                FROM TareaExtra te LEFT JOIN AreaAsse a ON a.Id = te.AreaAsseId
                 WHERE te.EliminadoEn IS NULL
                 """, transaction: tx))
             .Select(t => ClaveTarea(t.Area, t.Tarea))
@@ -499,10 +502,10 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
         var conAdvertencia = analisis.Solicitudes.Count(s => s.Advertencias.Count > 0);
         var importacionId = await cn.ExecuteScalarAsync<int>(
             """
-            INSERT INTO dbo.Importacion (FechaHora, UsuarioId, NombreArchivo, HashArchivo, FilasLeidas, SolicitudesNuevas,
+            INSERT INTO Importacion (FechaHora, UsuarioId, NombreArchivo, HashArchivo, FilasLeidas, SolicitudesNuevas,
                 SolicitudesExistentes, FilasConError, FilasConAdvertencia, TareasExtraNuevas)
-            OUTPUT inserted.Id
             VALUES (@ahora, @usuarioId, @nombre, @hash, @leidas, @nuevas, @existentes, @errores, @advertencias, @tareas)
+            RETURNING Id
             """,
             new
             {
@@ -547,7 +550,7 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
 
             await cn.ExecuteAsync(
                 """
-                INSERT INTO dbo.Solicitud
+                INSERT INTO Solicitud
                     (Id, FechaIngreso, DiaSemana, NombreFuncionario, OficinaId, MedioContactoId, TipoSolicitudId,
                      Descripcion, Observaciones, ResponsableId, DuracionEstimadaMin, EstadoId, PrioridadId,
                      FechaResolucion, MinutosResolucion, Origen, ImportacionId, FilaExcel, Version,
@@ -555,7 +558,7 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
                 VALUES
                     (@Id, @FechaIngreso, @DiaSemana, @NombreFuncionario, @OficinaId, @MedioContactoId, @TipoSolicitudId,
                      @Descripcion, @Observaciones, @ResponsableId, @DuracionEstimadaMin, @EstadoId, @PrioridadId,
-                     NULL, NULL, N'IMPORTACION', @ImportacionId, @FilaExcel, 1,
+                     NULL, NULL, 'IMPORTACION', @ImportacionId, @FilaExcel, 1,
                      NULL, @Ahora, @UsuarioId, @Ahora)
                 """,
                 filasSolicitud, tx, commandTimeout: 600);
@@ -572,18 +575,17 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
             }).ToList();
             await cn.ExecuteAsync(
                 """
-                INSERT INTO dbo.SolicitudHistorial (SolicitudId, FechaHora, UsuarioId, Accion, Detalle)
+                INSERT INTO SolicitudHistorial (SolicitudId, FechaHora, UsuarioId, Accion, Detalle)
                 VALUES (@SolicitudId, @FechaHora, @UsuarioId, @Accion, @Detalle)
                 """,
                 historial, tx, commandTimeout: 600);
 
+            await SolicitudesServicio.AsegurarSecuenciaAsync(cn, tx);
             await cn.ExecuteAsync(
                 """
-                IF NOT EXISTS (SELECT 1 FROM dbo.Secuencia WHERE Nombre = N'Solicitud')
-                    INSERT INTO dbo.Secuencia (Nombre, UltimoValor) VALUES (N'Solicitud', 0);
-                UPDATE dbo.Secuencia
+                UPDATE Secuencia
                 SET UltimoValor = CASE WHEN UltimoValor < @maximo THEN @maximo ELSE UltimoValor END
-                WHERE Nombre = N'Solicitud';
+                WHERE Nombre = 'Solicitud'
                 """,
                 new { maximo = nuevas.Max(s => s.Id) }, tx);
         }
@@ -592,9 +594,9 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
         {
             var tareaId = await cn.ExecuteScalarAsync<int>(
                 """
-                INSERT INTO dbo.TareaExtra (AreaAsseId, Tarea, Impacto, CargaTrabajo, Origen, ImportacionId, CreadoPorId, CreadoEn, ActualizadoPorId, ActualizadoEn)
-                OUTPUT inserted.Id
-                VALUES (@area, @tarea, @impacto, @carga, N'IMPORTACION', @importacionId, @usuarioId, @ahora, @usuarioId, @ahora)
+                INSERT INTO TareaExtra (AreaAsseId, Tarea, Impacto, CargaTrabajo, Origen, ImportacionId, CreadoPorId, CreadoEn, ActualizadoPorId, ActualizadoEn)
+                VALUES (@area, @tarea, @impacto, @carga, 'IMPORTACION', @importacionId, @usuarioId, @ahora, @usuarioId, @ahora)
+                RETURNING Id
                 """,
                 new
                 {
@@ -611,7 +613,7 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
             if (implicados.Count > 0)
             {
                 await cn.ExecuteAsync(
-                    "INSERT INTO dbo.TareaExtraImplicado (TareaExtraId, ResponsableId) VALUES (@TareaExtraId, @ResponsableId)",
+                    "INSERT INTO TareaExtraImplicado (TareaExtraId, ResponsableId) VALUES (@TareaExtraId, @ResponsableId)",
                     implicados.Select(r => new { TareaExtraId = tareaId, ResponsableId = r }).ToList(), tx);
             }
         }
@@ -630,18 +632,18 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
     {
         // tabla y columna vienen de este archivo (lista fija), nunca del usuario.
         var mapa = new Dictionary<string, int>();
-        foreach (var fila in await cn.QueryAsync<(int Id, string Nombre)>($"SELECT Id, {columna} AS Nombre FROM dbo.{tabla}", transaction: tx))
+        foreach (var fila in await cn.QueryAsync<(int Id, string Nombre)>($"SELECT Id, {columna} AS Nombre FROM {tabla}", transaction: tx))
         {
             mapa.TryAdd(Texto.Normalizar(fila.Nombre), fila.Id);
         }
-        var orden = await cn.ExecuteScalarAsync<int>($"SELECT ISNULL(MAX(Orden), 0) FROM dbo.{tabla}", transaction: tx);
+        var orden = await cn.ExecuteScalarAsync<int>($"SELECT COALESCE(MAX(Orden), 0) FROM {tabla}", transaction: tx);
         foreach (var valor in valores)
         {
             if (valor is null) continue;
             var clave = Texto.Normalizar(valor);
             if (clave.Length == 0 || mapa.ContainsKey(clave)) continue;
             var id = await cn.ExecuteScalarAsync<int>(
-                $"INSERT INTO dbo.{tabla} ({columna}, Activo, Orden) OUTPUT inserted.Id VALUES (@valor, @activo, @orden)",
+                $"INSERT INTO {tabla} ({columna}, Activo, Orden) VALUES (@valor, @activo, @orden) RETURNING Id",
                 new { valor = Texto.Recortar(valor, largo), activo, orden = ++orden }, tx);
             mapa[clave] = id;
         }
@@ -651,11 +653,11 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
     private static async Task<Dictionary<string, int>> AsegurarEstadosAsync(IDbConnection cn, IDbTransaction tx, IEnumerable<string?> valores)
     {
         var mapa = new Dictionary<string, int>();
-        foreach (var fila in await cn.QueryAsync<(int Id, string Nombre)>("SELECT Id, Nombre FROM dbo.Estado", transaction: tx))
+        foreach (var fila in await cn.QueryAsync<(int Id, string Nombre)>("SELECT Id, Nombre FROM Estado", transaction: tx))
         {
             mapa.TryAdd(Texto.Normalizar(fila.Nombre), fila.Id);
         }
-        var orden = await cn.ExecuteScalarAsync<int>("SELECT ISNULL(MAX(Orden), 0) FROM dbo.Estado", transaction: tx);
+        var orden = await cn.ExecuteScalarAsync<int>("SELECT COALESCE(MAX(Orden), 0) FROM Estado", transaction: tx);
         foreach (var valor in valores)
         {
             if (valor is null) continue;
@@ -664,7 +666,7 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
             var esResuelto = clave.StartsWith("resuelt", StringComparison.Ordinal) || clave.StartsWith("cerrad", StringComparison.Ordinal) ||
                              clave.StartsWith("finalizad", StringComparison.Ordinal);
             var id = await cn.ExecuteScalarAsync<int>(
-                "INSERT INTO dbo.Estado (Nombre, EsResuelto, Color, Activo, Orden, Predeterminado) OUTPUT inserted.Id VALUES (@valor, @esResuelto, @color, 1, @orden, 0)",
+                "INSERT INTO Estado (Nombre, EsResuelto, Color, Activo, Orden, Predeterminado) VALUES (@valor, @esResuelto, @color, TRUE, @orden, FALSE) RETURNING Id",
                 new { valor = Texto.Recortar(valor, 60), esResuelto, color = esResuelto ? "verde" : "ambar", orden = ++orden }, tx);
             mapa[clave] = id;
         }
@@ -674,11 +676,11 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
     private static async Task<Dictionary<string, int>> AsegurarPrioridadesAsync(IDbConnection cn, IDbTransaction tx, IEnumerable<string?> valores)
     {
         var mapa = new Dictionary<string, int>();
-        foreach (var fila in await cn.QueryAsync<(int Id, string Nombre)>("SELECT Id, Nombre FROM dbo.Prioridad", transaction: tx))
+        foreach (var fila in await cn.QueryAsync<(int Id, string Nombre)>("SELECT Id, Nombre FROM Prioridad", transaction: tx))
         {
             mapa.TryAdd(Texto.Normalizar(fila.Nombre), fila.Id);
         }
-        var nivel = await cn.ExecuteScalarAsync<int>("SELECT ISNULL(MAX(Nivel), 0) FROM dbo.Prioridad", transaction: tx);
+        var nivel = await cn.ExecuteScalarAsync<int>("SELECT COALESCE(MAX(Nivel), 0) FROM Prioridad", transaction: tx);
         foreach (var valor in valores)
         {
             if (valor is null) continue;
@@ -686,7 +688,7 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
             if (clave.Length == 0 || mapa.ContainsKey(clave)) continue;
             nivel++;
             var id = await cn.ExecuteScalarAsync<int>(
-                "INSERT INTO dbo.Prioridad (Nombre, Nivel, Activo, Orden, Predeterminado) OUTPUT inserted.Id VALUES (@valor, @nivel, 1, @nivel, 0)",
+                "INSERT INTO Prioridad (Nombre, Nivel, Activo, Orden, Predeterminado) VALUES (@valor, @nivel, TRUE, @nivel, FALSE) RETURNING Id",
                 new { valor = Texto.Recortar(valor, 30), nivel }, tx);
             mapa[clave] = id;
         }

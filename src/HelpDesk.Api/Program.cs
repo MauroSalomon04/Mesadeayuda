@@ -9,6 +9,7 @@ using HelpDesk.Api.Modulos.Usuarios;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Hosting.WindowsServices;
 
@@ -24,7 +25,8 @@ builder.Host.UseWindowsService(o => o.ServiceName = "HelpDeskAsse");
 var opciones = builder.Configuration.GetSection(OpcionesHelpDesk.Seccion).Get<OpcionesHelpDesk>() ?? new OpcionesHelpDesk();
 builder.Services.Configure<OpcionesHelpDesk>(builder.Configuration.GetSection(OpcionesHelpDesk.Seccion));
 
-// Dapper: DATETIME2 en lugar de DATETIME para los parámetros de fecha.
+// Dapper + Npgsql: DbType.DateTime2 se envía como "timestamp without time zone",
+// que es el tipo de todas las fechas (hora local de Uruguay, sin desplazamiento).
 SqlMapper.AddTypeMap(typeof(DateTime), DbType.DateTime2);
 SqlMapper.AddTypeMap(typeof(DateTime?), DbType.DateTime2);
 
@@ -110,6 +112,21 @@ builder.Services
         };
     });
 
+// Detrás del proxy del frontend (Docker): la IP real del usuario llega en X-Forwarded-For.
+// Se usa para el bloqueo de intentos de login por IP.
+if (opciones.ConfiarEnProxy)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(o =>
+    {
+        o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        o.ForwardLimit = 1;
+        o.KnownProxies.Clear();
+#pragma warning disable CS0618, ASPDEPR005
+        o.KnownNetworks.Clear();
+#pragma warning restore CS0618, ASPDEPR005
+    });
+}
+
 builder.Services.AddAuthorization(o =>
 {
     o.AddPolicy(Politicas.Admin, politica => politica.RequireAuthenticatedUser().RequireRole(Roles.Admin));
@@ -121,25 +138,41 @@ var app = builder.Build();
 using (var alcance = app.Services.CreateScope())
 {
     var log = alcance.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Inicio");
-    try
+    // Con Docker, PostgreSQL puede tardar unos segundos en aceptar conexiones: se reintenta.
+    const int intentosMaximos = 10;
+    for (var intento = 1; ; intento++)
     {
-        if (opciones.AplicarMigracionesAlIniciar)
+        try
         {
-            await alcance.ServiceProvider.GetRequiredService<Migrador>().EjecutarAsync();
+            if (opciones.AplicarMigracionesAlIniciar)
+            {
+                await alcance.ServiceProvider.GetRequiredService<Migrador>().EjecutarAsync();
+            }
+            await alcance.ServiceProvider.GetRequiredService<UsuariosRepositorio>().AsegurarAdministradorInicialAsync(
+                opciones, alcance.ServiceProvider.GetRequiredService<Reloj>(), log, app.Environment.ContentRootPath);
+            break;
         }
-        await alcance.ServiceProvider.GetRequiredService<UsuariosRepositorio>().AsegurarAdministradorInicialAsync(
-            opciones, alcance.ServiceProvider.GetRequiredService<Reloj>(), log, app.Environment.ContentRootPath);
-    }
-    catch (SqlException ex)
-    {
-        log.LogCritical(ex,
-            "No se pudo conectar o preparar la base de datos SQL Server. Revisá 'ConnectionStrings:HelpDesk' en appsettings.json. Detalle: {Mensaje}",
-            ex.Message);
-        throw;
+        catch (NpgsqlException ex) when (ex is not PostgresException && intento < intentosMaximos)
+        {
+            log.LogWarning("PostgreSQL todavía no responde (intento {Intento} de {Maximo}): {Mensaje}. Reintentando en 3 s...",
+                intento, intentosMaximos, ex.Message);
+            await Task.Delay(TimeSpan.FromSeconds(3));
+        }
+        catch (NpgsqlException ex)
+        {
+            log.LogCritical(ex,
+                "No se pudo conectar o preparar la base de datos PostgreSQL. Revisá 'ConnectionStrings:HelpDesk' (appsettings.json o variable ConnectionStrings__HelpDesk). Detalle: {Mensaje}",
+                ex.Message);
+            throw;
+        }
     }
 }
 
 // ---------------------------------------------------------------- pipeline
+if (opciones.ConfiarEnProxy)
+{
+    app.UseForwardedHeaders();
+}
 app.UseMiddleware<ManejoErroresMiddleware>();
 
 app.Use(async (contexto, siguiente) =>

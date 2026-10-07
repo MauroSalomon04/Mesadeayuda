@@ -71,57 +71,57 @@ public sealed class DashboardServicio(BaseDatos db, Reloj reloj)
         var where = "WHERE s.EliminadoEn IS NULL" + (desde is null ? "" : " AND s.FechaIngreso >= @desde");
         var sql = $"""
             SELECT
-                ISNULL(SUM(CASE WHEN s.FechaIngreso >= @hoy THEN 1 ELSE 0 END), 0) AS Hoy,
-                ISNULL(SUM(CASE WHEN s.FechaIngreso >= @semana THEN 1 ELSE 0 END), 0) AS Semana,
-                ISNULL(SUM(CASE WHEN s.FechaIngreso >= @mes THEN 1 ELSE 0 END), 0) AS Mes,
-                ISNULL(SUM(CASE WHEN e.EsResuelto = 0 THEN 1 ELSE 0 END), 0) AS Pendientes,
-                ISNULL(SUM(CASE WHEN s.EstadoId IS NULL THEN 1 ELSE 0 END), 0) AS SinEstado
-            FROM dbo.Solicitud s
-            LEFT JOIN dbo.Estado e ON e.Id = s.EstadoId
+                COALESCE(SUM(CASE WHEN s.FechaIngreso >= @hoy THEN 1 ELSE 0 END), 0) AS Hoy,
+                COALESCE(SUM(CASE WHEN s.FechaIngreso >= @semana THEN 1 ELSE 0 END), 0) AS Semana,
+                COALESCE(SUM(CASE WHEN s.FechaIngreso >= @mes THEN 1 ELSE 0 END), 0) AS Mes,
+                COALESCE(SUM(CASE WHEN e.EsResuelto = FALSE THEN 1 ELSE 0 END), 0) AS Pendientes,
+                COALESCE(SUM(CASE WHEN s.EstadoId IS NULL THEN 1 ELSE 0 END), 0) AS SinEstado
+            FROM Solicitud s
+            LEFT JOIN Estado e ON e.Id = s.EstadoId
             WHERE s.EliminadoEn IS NULL;
 
             SELECT
                 COUNT(*) AS Total,
-                ISNULL(SUM(CASE WHEN e.EsResuelto = 1 THEN 1 ELSE 0 END), 0) AS Resueltas,
-                AVG(CASE WHEN s.MinutosResolucion > 0 THEN CAST(s.MinutosResolucion AS FLOAT) END) AS PromedioResolucionMin,
-                ISNULL(SUM(CASE WHEN s.MinutosResolucion > 0 THEN 1 ELSE 0 END), 0) AS ResueltasConTiempo,
-                ISNULL(SUM(CASE WHEN s.MinutosResolucion = 0 THEN 1 ELSE 0 END), 0) AS ResueltasAlRegistrar,
-                AVG(CAST(s.DuracionEstimadaMin AS FLOAT)) AS DuracionPromedioMin,
-                ISNULL(SUM(CAST(s.DuracionEstimadaMin AS BIGINT)), 0) AS MinutosEstimados
-            FROM dbo.Solicitud s
-            LEFT JOIN dbo.Estado e ON e.Id = s.EstadoId
+                COALESCE(SUM(CASE WHEN e.EsResuelto = TRUE THEN 1 ELSE 0 END), 0) AS Resueltas,
+                AVG(CASE WHEN s.MinutosResolucion > 0 THEN CAST(s.MinutosResolucion AS DOUBLE PRECISION) END) AS PromedioResolucionMin,
+                COALESCE(SUM(CASE WHEN s.MinutosResolucion > 0 THEN 1 ELSE 0 END), 0) AS ResueltasConTiempo,
+                COALESCE(SUM(CASE WHEN s.MinutosResolucion = 0 THEN 1 ELSE 0 END), 0) AS ResueltasAlRegistrar,
+                AVG(CAST(s.DuracionEstimadaMin AS DOUBLE PRECISION)) AS DuracionPromedioMin,
+                COALESCE(SUM(s.DuracionEstimadaMin), 0) AS MinutosEstimados
+            FROM Solicitud s
+            LEFT JOIN Estado e ON e.Id = s.EstadoId
             {where};
 
-            SELECT ISNULL(t.Codigo, N'(sin tipo)') AS Etiqueta, COUNT(*) AS Cantidad
-            FROM dbo.Solicitud s LEFT JOIN dbo.TipoSolicitud t ON t.Id = s.TipoSolicitudId
+            SELECT COALESCE(t.Codigo, '(sin tipo)') AS Etiqueta, COUNT(*) AS Cantidad
+            FROM Solicitud s LEFT JOIN TipoSolicitud t ON t.Id = s.TipoSolicitudId
             {where} GROUP BY t.Codigo ORDER BY COUNT(*) DESC;
 
-            SELECT ISNULL(r.Nombre, N'(sin responsable)') AS Etiqueta, COUNT(*) AS Cantidad
-            FROM dbo.Solicitud s LEFT JOIN dbo.Responsable r ON r.Id = s.ResponsableId
+            SELECT COALESCE(r.Nombre, '(sin responsable)') AS Etiqueta, COUNT(*) AS Cantidad
+            FROM Solicitud s LEFT JOIN Responsable r ON r.Id = s.ResponsableId
             {where} GROUP BY r.Nombre ORDER BY COUNT(*) DESC;
 
-            SELECT TOP (10) ISNULL(o.Nombre, N'(sin oficina)') AS Etiqueta, COUNT(*) AS Cantidad
-            FROM dbo.Solicitud s LEFT JOIN dbo.Oficina o ON o.Id = s.OficinaId
-            {where} GROUP BY o.Nombre ORDER BY COUNT(*) DESC;
+            SELECT COALESCE(o.Nombre, '(sin oficina)') AS Etiqueta, COUNT(*) AS Cantidad
+            FROM Solicitud s LEFT JOIN Oficina o ON o.Id = s.OficinaId
+            {where} GROUP BY o.Nombre ORDER BY COUNT(*) DESC LIMIT 10;
 
-            SELECT ISNULL(m.Nombre, N'(sin medio)') AS Etiqueta, COUNT(*) AS Cantidad
-            FROM dbo.Solicitud s LEFT JOIN dbo.MedioContacto m ON m.Id = s.MedioContactoId
+            SELECT COALESCE(m.Nombre, '(sin medio)') AS Etiqueta, COUNT(*) AS Cantidad
+            FROM Solicitud s LEFT JOIN MedioContacto m ON m.Id = s.MedioContactoId
             {where} GROUP BY m.Nombre ORDER BY COUNT(*) DESC;
 
-            SELECT ISNULL(p.Nombre, N'(sin prioridad)') AS Etiqueta, COUNT(*) AS Cantidad
-            FROM dbo.Solicitud s LEFT JOIN dbo.Prioridad p ON p.Id = s.PrioridadId
+            SELECT COALESCE(p.Nombre, '(sin prioridad)') AS Etiqueta, COUNT(*) AS Cantidad
+            FROM Solicitud s LEFT JOIN Prioridad p ON p.Id = s.PrioridadId
             {where} GROUP BY p.Nombre, p.Nivel ORDER BY CASE WHEN p.Nivel IS NULL THEN 1 ELSE 0 END, p.Nivel;
 
-            SELECT ISNULL(e.Nombre, N'(sin estado)') AS Etiqueta, COUNT(*) AS Cantidad
-            FROM dbo.Solicitud s LEFT JOIN dbo.Estado e ON e.Id = s.EstadoId
+            SELECT COALESCE(e.Nombre, '(sin estado)') AS Etiqueta, COUNT(*) AS Cantidad
+            FROM Solicitud s LEFT JOIN Estado e ON e.Id = s.EstadoId
             {where} GROUP BY e.Nombre ORDER BY COUNT(*) DESC;
 
-            SELECT CONVERT(CHAR(7), s.FechaIngreso, 126) AS Mes, COUNT(*) AS Cantidad,
-                   ISNULL(SUM(CASE WHEN e.EsResuelto = 0 THEN 1 ELSE 0 END), 0) AS Pendientes
-            FROM dbo.Solicitud s LEFT JOIN dbo.Estado e ON e.Id = s.EstadoId
-            {where} GROUP BY CONVERT(CHAR(7), s.FechaIngreso, 126) ORDER BY Mes;
+            SELECT to_char(s.FechaIngreso, 'YYYY-MM') AS Mes, COUNT(*) AS Cantidad,
+                   COALESCE(SUM(CASE WHEN e.EsResuelto = FALSE THEN 1 ELSE 0 END), 0) AS Pendientes
+            FROM Solicitud s LEFT JOIN Estado e ON e.Id = s.EstadoId
+            {where} GROUP BY to_char(s.FechaIngreso, 'YYYY-MM') ORDER BY Mes;
 
-            SELECT s.Descripcion FROM dbo.Solicitud s {where} AND s.Descripcion IS NOT NULL;
+            SELECT s.Descripcion FROM Solicitud s {where} AND s.Descripcion IS NOT NULL;
             """;
 
         await using var cn = await db.AbrirAsync(ct);

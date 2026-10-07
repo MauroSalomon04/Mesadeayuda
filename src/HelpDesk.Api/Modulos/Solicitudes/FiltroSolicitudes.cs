@@ -96,13 +96,13 @@ public static class ConsultaSolicitudes
         """;
 
     public const string Desde = """
-        FROM dbo.Solicitud s
-        LEFT JOIN dbo.Oficina o       ON o.Id = s.OficinaId
-        LEFT JOIN dbo.MedioContacto m ON m.Id = s.MedioContactoId
-        LEFT JOIN dbo.TipoSolicitud t ON t.Id = s.TipoSolicitudId
-        LEFT JOIN dbo.Responsable r   ON r.Id = s.ResponsableId
-        LEFT JOIN dbo.Estado e        ON e.Id = s.EstadoId
-        LEFT JOIN dbo.Prioridad p     ON p.Id = s.PrioridadId
+        FROM Solicitud s
+        LEFT JOIN Oficina o       ON o.Id = s.OficinaId
+        LEFT JOIN MedioContacto m ON m.Id = s.MedioContactoId
+        LEFT JOIN TipoSolicitud t ON t.Id = s.TipoSolicitudId
+        LEFT JOIN Responsable r   ON r.Id = s.ResponsableId
+        LEFT JOIN Estado e        ON e.Id = s.EstadoId
+        LEFT JOIN Prioridad p     ON p.Id = s.PrioridadId
         """;
 
     private static readonly Dictionary<string, string> ColumnasOrden = new(StringComparer.OrdinalIgnoreCase)
@@ -114,7 +114,7 @@ public static class ConsultaSolicitudes
         ["medio"] = "m.Nombre",
         ["tipo"] = "t.Codigo",
         ["descripcion"] = "s.Descripcion",
-        ["observaciones"] = "CAST(s.Observaciones AS NVARCHAR(400))",
+        ["observaciones"] = "LEFT(s.Observaciones, 400)",
         ["responsable"] = "r.Nombre",
         ["duracion"] = "s.DuracionEstimadaMin",
         ["estado"] = "e.Nombre",
@@ -129,10 +129,10 @@ public static class ConsultaSolicitudes
         switch (f.Rapido)
         {
             case "pendientes":
-                w.Append(" AND e.EsResuelto = 0");
+                w.Append(" AND e.EsResuelto = FALSE");
                 break;
             case "resueltos":
-                w.Append(" AND e.EsResuelto = 1");
+                w.Append(" AND e.EsResuelto = TRUE");
                 break;
             case "sinestado":
                 w.Append(" AND s.EstadoId IS NULL");
@@ -164,7 +164,7 @@ public static class ConsultaSolicitudes
         AgregarLista(w, p, "s.OficinaId", "fOficina", f.Oficinas);
         if (f.OficinaTexto is { } oficinaTexto)
         {
-            w.Append(" AND o.Nombre COLLATE Latin1_General_CI_AI LIKE @fOficinaTexto");
+            w.Append(" AND normalizar(o.Nombre) LIKE normalizar(@fOficinaTexto)");
             p.Add("fOficinaTexto", "%" + Infraestructura.Texto.EscaparLike(oficinaTexto) + "%");
         }
 
@@ -195,12 +195,12 @@ public static class ConsultaSolicitudes
                     var nombre = $"q{i}";
                     p.Add(nombre, "%" + Infraestructura.Texto.EscaparLike(palabras[i]) + "%");
                     w.Append($"""
-                         AND (CONVERT(NVARCHAR(20), s.Id) LIKE @{nombre}
-                          OR s.NombreFuncionario COLLATE Latin1_General_CI_AI LIKE @{nombre}
-                          OR o.Nombre COLLATE Latin1_General_CI_AI LIKE @{nombre}
-                          OR s.Descripcion COLLATE Latin1_General_CI_AI LIKE @{nombre}
-                          OR s.Observaciones COLLATE Latin1_General_CI_AI LIKE @{nombre}
-                          OR r.Nombre COLLATE Latin1_General_CI_AI LIKE @{nombre})
+                         AND (CAST(s.Id AS TEXT) LIKE @{nombre}
+                          OR normalizar(s.NombreFuncionario) LIKE normalizar(@{nombre})
+                          OR normalizar(o.Nombre) LIKE normalizar(@{nombre})
+                          OR normalizar(s.Descripcion) LIKE normalizar(@{nombre})
+                          OR normalizar(s.Observaciones) LIKE normalizar(@{nombre})
+                          OR normalizar(r.Nombre) LIKE normalizar(@{nombre}))
                         """);
                 }
             }
@@ -236,8 +236,9 @@ public static class ConsultaSolicitudes
         var condiciones = new List<string>();
         if (lista.Ids.Count > 0)
         {
-            condiciones.Add($"{columna} IN @{parametro}");
-            p.Add(parametro, lista.Ids);
+            // Con PostgreSQL, Dapper envía la lista como un arreglo: se usa "= ANY(...)" en lugar de "IN".
+            condiciones.Add($"{columna} = ANY(@{parametro})");
+            p.Add(parametro, lista.Ids.ToArray());
         }
         if (lista.IncluyeVacio) condiciones.Add($"{columna} IS NULL");
         w.Append(" AND (").Append(string.Join(" OR ", condiciones)).Append(')');

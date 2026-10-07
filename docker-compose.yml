@@ -1,0 +1,99 @@
+# Mesa de Ayuda ASSE - IntegradoC
+# Arquitectura:  navegador → frontend (nginx :80) → backend (ASP.NET Core :5080) → postgres (:5432)
+#
+# Uso:
+#   docker compose up --build        (la primera vez crea la base, las tablas y los catálogos)
+#   http://localhost:8080            (o el puerto definido en FRONTEND_PORT)
+#
+# Las variables se toman del archivo .env (ver .env.example). Si no existe, se usan los valores
+# por defecto de abajo, que sirven para probar pero NO para producción.
+
+name: helpdesk-asse
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-helpdeskasse}
+      POSTGRES_USER: ${POSTGRES_USER:-helpdesk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helpdesk_cambiar}
+      # UTF-8 y orden alfabético en español (ICU), como Modern_Spanish de SQL Server.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=icu --icu-locale=es-UY"
+      TZ: America/Montevideo
+    volumes:
+      # Datos persistentes: sobreviven a "docker compose down" y a reinicios.
+      - postgres-data:/var/lib/postgresql/data
+      # Se ejecutan solo la primera vez, cuando el volumen de datos está vacío.
+      - ./database:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Solo desde esta PC (para pgAdmin/DBeaver). Quitar si no hace falta.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      # Por TCP: durante la inicialización PostgreSQL solo escucha por socket local,
+      # así el backend no intenta conectarse antes de que terminen los scripts.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks:
+      - helpdesk
+
+  backend:
+    build:
+      context: .
+      dockerfile: src/HelpDesk.Api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # "postgres" es el nombre del servicio: Docker lo resuelve dentro de la red interna.
+      ConnectionStrings__HelpDesk: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-helpdeskasse};Username=${POSTGRES_USER:-helpdesk};Password=${POSTGRES_PASSWORD:-helpdesk_cambiar}"
+      HelpDesk__ZonaHoraria: America/Montevideo
+      HelpDesk__AplicarMigracionesAlIniciar: "true"
+      # La base la crea el contenedor de PostgreSQL (POSTGRES_DB).
+      HelpDesk__CrearBaseSiNoExiste: "false"
+      HelpDesk__PasswordAdminInicial: ${ADMIN_PASSWORD_INICIAL:-}
+      HelpDesk__HorasSesion: ${HORAS_SESION:-12}
+      HelpDesk__CarpetaClaves: /app/claves
+      HelpDesk__ConfiarEnProxy: "true"
+      ASPNETCORE_URLS: http://+:5080
+      ASPNETCORE_ENVIRONMENT: Production
+      TZ: America/Montevideo
+    volumes:
+      # Claves de la cookie de sesión: las sesiones siguen válidas tras reiniciar.
+      - backend-claves:/app/claves
+    ports:
+      # Acceso directo a la API solo desde esta PC (diagnóstico). Los usuarios entran por el frontend.
+      - "127.0.0.1:${BACKEND_PORT:-5080}:5080"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/5080 && printf 'GET /api/salud HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '\"ok\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks:
+      - helpdesk
+
+  frontend:
+    build:
+      context: src/HelpDesk.Web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - helpdesk
+
+volumes:
+  postgres-data:
+  backend-claves:
+
+networks:
+  helpdesk:
+    driver: bridge

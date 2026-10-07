@@ -1,12 +1,16 @@
 // Compila la interfaz (React + TypeScript) y la deja en ../HelpDesk.Api/wwwroot,
 // desde donde la sirve el backend ASP.NET Core. Uso: node build.mjs [--watch]
+// Con la variable de entorno SALIDA se puede elegir otra carpeta (la usa el Dockerfile
+// del frontend, que sirve la interfaz con nginx).
 import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const raiz = path.dirname(fileURLToPath(import.meta.url));
-const salida = path.resolve(raiz, '../HelpDesk.Api/wwwroot');
+const salida = process.env.SALIDA
+  ? path.resolve(process.env.SALIDA)
+  : path.resolve(raiz, '../HelpDesk.Api/wwwroot');
 const carpetaAssets = path.join(salida, 'assets');
 const modoWatch = process.argv.includes('--watch');
 

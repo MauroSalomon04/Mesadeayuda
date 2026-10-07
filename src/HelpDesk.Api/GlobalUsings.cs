@@ -7,5 +7,5 @@ global using Dapper;
 global using HelpDesk.Api.Configuracion;
 global using HelpDesk.Api.Datos;
 global using HelpDesk.Api.Infraestructura;
-global using Microsoft.Data.SqlClient;
+global using Npgsql;
 global using Microsoft.Extensions.Options;

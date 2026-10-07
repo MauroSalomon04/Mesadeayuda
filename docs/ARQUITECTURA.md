@@ -3,23 +3,34 @@
 ## 1. Arquitectura
 
 ```
-Navegador (PCs de la mesa)            Servidor interno (PC o VM de ASSE)
+Navegador (PCs de la mesa)            Servidor interno (PC o VM de ASSE) — Docker Compose
 ┌─────────────────────┐   HTTP(S)   ┌──────────────────────────────────┐
-│ Interfaz React       │ ──────────▶ │ ASP.NET Core 10 (HelpDesk.Api)   │
-│ tabla, formularios,  │    JSON     │ API REST /api/... + archivos web │
-│ dashboard            │ ◀────────── │ login, permisos, historial,      │
-└─────────────────────┘             │ importación/exportación de Excel │
-                                    └────────────────┬─────────────────┘
-                                                     │ Dapper / Microsoft.Data.SqlClient
+│ Interfaz React       │ ──────────▶ │ frontend (nginx :80)             │
+│ tabla, formularios,  │    JSON     │ archivos web + proxy /api/       │
+│ dashboard            │ ◀────────── └────────────────┬─────────────────┘
+└─────────────────────┘                              │ http://backend:5080
                                     ┌────────────────▼─────────────────┐
-                                    │ SQL Server (base HelpDeskAsse)   │
+                                    │ backend: ASP.NET Core 10         │
+                                    │ API REST /api/... login,         │
+                                    │ permisos, historial, Excel       │
+                                    └────────────────┬─────────────────┘
+                                                     │ Dapper / Npgsql (postgres:5432)
+                                    ┌────────────────▼─────────────────┐
+                                    │ postgres: PostgreSQL 17          │
+                                    │ base helpdeskasse (volumen)      │
                                     └──────────────────────────────────┘
 ```
 
-- **Un solo proceso**: el mismo ejecutable sirve la API y la interfaz web (archivos estáticos en `wwwroot`).
+- **Tres servicios** (Docker Compose): `frontend` (nginx con la interfaz compilada, reenvía `/api/` al
+  backend para que el navegador vea un único origen), `backend` y `postgres`. Sin Docker, el backend
+  sigue pudiendo servir solo la interfaz desde `wwwroot`, como antes.
 - **API**: Minimal APIs de ASP.NET Core, organizadas por módulo en `src/HelpDesk.Api/Modulos`.
-- **Datos**: SQL explícito con Dapper. El esquema está en `database/*.sql` (T-SQL legible por un DBA)
-  y se aplica solo al iniciar, con control de versión en `dbo.VersionEsquema`.
+- **Datos**: SQL explícito con Dapper sobre Npgsql. El esquema está en `database/*.sql` (SQL de
+  PostgreSQL legible por un DBA). Con Docker lo ejecuta el contenedor de PostgreSQL al crear la base;
+  sin Docker lo aplica el backend al iniciar. En ambos casos queda registrado en `VersionEsquema`.
+- **Búsquedas sin tildes ni mayúsculas**: la función SQL `normalizar(texto)` (extensión `unaccent` +
+  `lower`) reemplaza a `COLLATE Latin1_General_CI_AI`; los nombres únicos usan índices sobre `lower(...)`
+  (equivalente a la intercalación `Modern_Spanish_CI_AS`).
 - **Excel**: lectura y escritura de `.xlsx` con las librerías de .NET (`System.IO.Compression` y
   `System.Xml`), sin componentes de terceros.
 - **Interfaz**: React + TypeScript compilada con esbuild. No carga nada de internet.

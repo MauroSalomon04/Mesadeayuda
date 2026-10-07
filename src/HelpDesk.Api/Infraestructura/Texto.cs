@@ -70,9 +70,9 @@ public static partial class Texto
         return resultado;
     }
 
-    /// <summary>Escapa los comodines de LIKE de SQL Server.</summary>
+    /// <summary>Escapa los comodines de LIKE de PostgreSQL (el carácter de escape por defecto es la barra invertida).</summary>
     public static string EscaparLike(string valor) =>
-        valor.Replace("[", "[[]").Replace("%", "[%]").Replace("_", "[_]");
+        valor.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
     /// <summary>Recorta un texto a un largo máximo.</summary>
     public static string? Recortar(string? valor, int largo) =>

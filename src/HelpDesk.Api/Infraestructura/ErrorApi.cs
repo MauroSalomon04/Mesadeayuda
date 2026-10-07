@@ -27,7 +27,7 @@ public sealed class ManejoErroresMiddleware(RequestDelegate siguiente, ILogger<M
         {
             await EscribirAsync(contexto, ex.Estado, ex.Message, ex.Datos);
         }
-        catch (SqlException ex) when (ex.Number is 2627 or 2601)
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
         {
             await EscribirAsync(contexto, StatusCodes.Status409Conflict, "Ya existe un registro con ese nombre.", null);
         }

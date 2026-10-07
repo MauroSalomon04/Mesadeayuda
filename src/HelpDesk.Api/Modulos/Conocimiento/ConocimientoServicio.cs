@@ -50,25 +50,26 @@ public sealed class ConocimientoServicio(BaseDatos db)
         for (var i = 0; i < palabras.Count; i++)
         {
             p.Add($"k{i}", "%" + Texto.EscaparLike(palabras[i]) + "%");
-            condiciones.Add($"s.Descripcion COLLATE Latin1_General_CI_AI LIKE @k{i} OR s.Observaciones COLLATE Latin1_General_CI_AI LIKE @k{i}");
+            condiciones.Add($"normalizar(s.Descripcion) LIKE normalizar(@k{i}) OR normalizar(s.Observaciones) LIKE normalizar(@k{i})");
         }
         p.Add("excluir", excluirId);
         p.Add("maximo", MaximoCandidatos);
 
         var sql = $"""
-            SELECT COUNT(*) FROM dbo.Solicitud WHERE EliminadoEn IS NULL;
+            SELECT COUNT(*) FROM Solicitud WHERE EliminadoEn IS NULL;
 
-            SELECT TOP (@maximo) s.Id, s.FechaIngreso, s.NombreFuncionario, o.Nombre AS Oficina, s.Descripcion, s.Observaciones,
+            SELECT s.Id, s.FechaIngreso, s.NombreFuncionario, o.Nombre AS Oficina, s.Descripcion, s.Observaciones,
                    r.Nombre AS Responsable, e.Nombre AS Estado, e.EsResuelto AS EstadoEsResuelto, t.Codigo AS TipoSolicitud
-            FROM dbo.Solicitud s
-            LEFT JOIN dbo.Oficina o ON o.Id = s.OficinaId
-            LEFT JOIN dbo.Responsable r ON r.Id = s.ResponsableId
-            LEFT JOIN dbo.Estado e ON e.Id = s.EstadoId
-            LEFT JOIN dbo.TipoSolicitud t ON t.Id = s.TipoSolicitudId
+            FROM Solicitud s
+            LEFT JOIN Oficina o ON o.Id = s.OficinaId
+            LEFT JOIN Responsable r ON r.Id = s.ResponsableId
+            LEFT JOIN Estado e ON e.Id = s.EstadoId
+            LEFT JOIN TipoSolicitud t ON t.Id = s.TipoSolicitudId
             WHERE s.EliminadoEn IS NULL
               AND (@excluir IS NULL OR s.Id <> @excluir)
               AND ({string.Join(" OR ", condiciones)})
-            ORDER BY s.Id DESC;
+            ORDER BY s.Id DESC
+            LIMIT @maximo;
             """;
 
         await using var cn = await db.AbrirAsync(ct);
@@ -123,20 +124,23 @@ public sealed class ConocimientoServicio(BaseDatos db)
         await using var cn = await db.AbrirAsync(ct);
         var filas = await cn.QueryAsync<SugerenciaFuncionario>(
             """
-            SELECT TOP (10) x.Nombre, o.Nombre AS Oficina, x.Cantidad, x.UltimaFecha
+            SELECT x.Nombre, o.Nombre AS Oficina, x.Cantidad, x.UltimaFecha
             FROM (
-                SELECT s.NombreFuncionario AS Nombre, COUNT(*) AS Cantidad, MAX(s.FechaIngreso) AS UltimaFecha, MAX(s.Id) AS UltimoId
-                FROM dbo.Solicitud s
+                -- Se agrupa sin distinguir mayúsculas (como la intercalación CI de SQL Server).
+                SELECT MIN(s.NombreFuncionario) AS Nombre, CAST(COUNT(*) AS INTEGER) AS Cantidad,
+                       MAX(s.FechaIngreso) AS UltimaFecha, MAX(s.Id) AS UltimoId
+                FROM Solicitud s
                 WHERE s.EliminadoEn IS NULL
                   AND s.NombreFuncionario IS NOT NULL
-                  AND s.NombreFuncionario <> N'?'
-                  AND s.NombreFuncionario COLLATE Latin1_General_CI_AI LIKE @patron
-                GROUP BY s.NombreFuncionario
+                  AND s.NombreFuncionario <> '?'
+                  AND normalizar(s.NombreFuncionario) LIKE normalizar(@patron)
+                GROUP BY lower(s.NombreFuncionario)
             ) x
-            JOIN dbo.Solicitud ultima ON ultima.Id = x.UltimoId
-            LEFT JOIN dbo.Oficina o ON o.Id = ultima.OficinaId
-            ORDER BY CASE WHEN x.Nombre COLLATE Latin1_General_CI_AI LIKE @prefijo THEN 0 ELSE 1 END,
+            JOIN Solicitud ultima ON ultima.Id = x.UltimoId
+            LEFT JOIN Oficina o ON o.Id = ultima.OficinaId
+            ORDER BY CASE WHEN normalizar(x.Nombre) LIKE normalizar(@prefijo) THEN 0 ELSE 1 END,
                      x.Cantidad DESC, x.UltimaFecha DESC
+            LIMIT 10
             """,
             new { patron = "%" + Texto.EscaparLike(limpio) + "%", prefijo = Texto.EscaparLike(limpio) + "%" });
         return filas.ToList();
@@ -148,13 +152,14 @@ public sealed class ConocimientoServicio(BaseDatos db)
         await using var cn = await db.AbrirAsync(ct);
         var filas = await cn.QueryAsync<SugerenciaTexto>(
             """
-            SELECT TOP (12) o.Nombre AS Texto, COUNT(s.Id) AS Cantidad
-            FROM dbo.Oficina o
-            LEFT JOIN dbo.Solicitud s ON s.OficinaId = o.Id AND s.EliminadoEn IS NULL
-            WHERE o.Activo = 1 AND o.Nombre COLLATE Latin1_General_CI_AI LIKE @patron
+            SELECT o.Nombre AS Texto, CAST(COUNT(s.Id) AS INTEGER) AS Cantidad
+            FROM Oficina o
+            LEFT JOIN Solicitud s ON s.OficinaId = o.Id AND s.EliminadoEn IS NULL
+            WHERE o.Activo = TRUE AND normalizar(o.Nombre) LIKE normalizar(@patron)
             GROUP BY o.Id, o.Nombre
-            ORDER BY CASE WHEN o.Nombre COLLATE Latin1_General_CI_AI LIKE @prefijo THEN 0 ELSE 1 END,
+            ORDER BY CASE WHEN normalizar(o.Nombre) LIKE normalizar(@prefijo) THEN 0 ELSE 1 END,
                      COUNT(s.Id) DESC, o.Nombre
+            LIMIT 12
             """,
             new { patron = "%" + Texto.EscaparLike(limpio) + "%", prefijo = Texto.EscaparLike(limpio) + "%" });
         return filas.ToList();
@@ -166,14 +171,19 @@ public sealed class ConocimientoServicio(BaseDatos db)
         await using var cn = await db.AbrirAsync(ct);
         var filas = await cn.QueryAsync<SugerenciaTexto>(
             """
-            SELECT TOP (12) s.Descripcion AS Texto, COUNT(*) AS Cantidad
-            FROM dbo.Solicitud s
-            WHERE s.EliminadoEn IS NULL
-              AND s.Descripcion IS NOT NULL
-              AND s.Descripcion COLLATE Latin1_General_CI_AI LIKE @patron
-            GROUP BY s.Descripcion
-            ORDER BY CASE WHEN s.Descripcion COLLATE Latin1_General_CI_AI LIKE @prefijo THEN 0 ELSE 1 END,
-                     COUNT(*) DESC, s.Descripcion
+            SELECT x.Texto, x.Cantidad
+            FROM (
+                -- Se agrupa sin distinguir mayúsculas (como la intercalación CI de SQL Server).
+                SELECT MIN(s.Descripcion) AS Texto, CAST(COUNT(*) AS INTEGER) AS Cantidad
+                FROM Solicitud s
+                WHERE s.EliminadoEn IS NULL
+                  AND s.Descripcion IS NOT NULL
+                  AND normalizar(s.Descripcion) LIKE normalizar(@patron)
+                GROUP BY lower(s.Descripcion)
+            ) x
+            ORDER BY CASE WHEN normalizar(x.Texto) LIKE normalizar(@prefijo) THEN 0 ELSE 1 END,
+                     x.Cantidad DESC, x.Texto
+            LIMIT 12
             """,
             new { patron = "%" + Texto.EscaparLike(limpio) + "%", prefijo = Texto.EscaparLike(limpio) + "%" });
         return filas.ToList();
