@@ -2,6 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { alPerderSesion, api, ErrorApi } from '../api';
 import type { Catalogos, Contadores, ItemCatalogo, Sesion } from '../tipos';
 import { useEvento } from '../util/hooks';
+import { tiempoRealConectado } from './tiempoReal';
 
 // ================================================================ sesión
 
@@ -112,7 +113,10 @@ export function ProveedorContadores({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     recargar();
-    const intervalo = setInterval(recargar, 60_000);
+    // Respaldo por si la conexión en tiempo real no está disponible (con ella, los avisos llegan solos).
+    const intervalo = setInterval(() => {
+      if (!tiempoRealConectado()) recargar();
+    }, 60_000);
     return () => clearInterval(intervalo);
   }, [recargar]);
   useEvento('solicitudes', recargar);

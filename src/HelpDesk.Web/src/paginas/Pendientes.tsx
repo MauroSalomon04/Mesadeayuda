@@ -102,7 +102,7 @@ export function Pendientes() {
                 const claseTiempo = minutos > 7 * 24 * 60 ? 'largo' : minutos > 24 * 60 ? 'medio' : '';
                 return (
                   <tr key={s.id} className={`pendiente${seleccion === s.id ? ' seleccionada' : ''}`} onClick={() => cambiarParams({ ver: s.id })}>
-                    <td className="col-id">{s.id}</td>
+                    <td className="col-id">{s.numero}</td>
                     <td className="col-fecha">
                       {fechaCorta(s.fechaIngreso)}
                       <span className="hora">{hora(s.fechaIngreso)}</span>
@@ -117,7 +117,7 @@ export function Pendientes() {
                     </td>
                     <td>
                       <MenuDesplegable
-                        etiqueta={`Cambiar responsable de la solicitud ${s.id}`}
+                        etiqueta={`Cambiar responsable de la solicitud ${s.numero}`}
                         boton={s.responsable ?? <span className="tenue">Asignar</span>}
                         titulo="Cambiar responsable"
                         opciones={activos(catalogos.responsables).map((r) => ({
@@ -125,14 +125,14 @@ export function Pendientes() {
                           texto: r.nombre,
                           actual: r.id === s.responsableId,
                           alElegir: () => {
-                            if (r.id !== s.responsableId) void cambiar(s.id, { responsableId: r.id }, `Solicitud #${s.id} asignada a ${r.nombre}.`, s.responsableId !== null ? { responsableId: s.responsableId } : undefined);
+                            if (r.id !== s.responsableId) void cambiar(s, { responsableId: r.id }, `Solicitud #${s.numero} asignada a ${r.nombre}.`, s.responsableId !== null ? { responsableId: s.responsableId } : undefined);
                           },
                         }))}
                       />
                     </td>
                     <td>
                       <MenuDesplegable
-                        etiqueta={`Cambiar estado de la solicitud ${s.id}`}
+                        etiqueta={`Cambiar estado de la solicitud ${s.numero}`}
                         boton={<Estado nombre={s.estado} esResuelto={s.estadoEsResuelto} color={s.estadoColor} />}
                         titulo="Cambiar estado"
                         opciones={activos(catalogos.estados).map((e) => ({
@@ -140,7 +140,7 @@ export function Pendientes() {
                           texto: <Estado nombre={e.nombre} esResuelto={e.esResuelto} color={e.color} />,
                           actual: e.id === s.estadoId,
                           alElegir: () => {
-                            if (e.id !== s.estadoId) void cambiar(s.id, { estadoId: e.id }, `Solicitud #${s.id}: ${e.nombre}.`, s.estadoId !== null ? { estadoId: s.estadoId } : undefined);
+                            if (e.id !== s.estadoId) void cambiar(s, { estadoId: e.id }, `Solicitud #${s.numero}: ${e.nombre}.`, s.estadoId !== null ? { estadoId: s.estadoId } : undefined);
                           },
                         }))}
                       />

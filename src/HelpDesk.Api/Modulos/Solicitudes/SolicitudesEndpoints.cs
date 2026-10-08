@@ -32,7 +32,7 @@ public static class SolicitudesEndpoints
     {
         var detalle = await servicio.ObtenerDetalleAsync(id, ct);
         return detalle is null
-            ? Results.Json(new { mensaje = $"La solicitud #{id} no existe." }, statusCode: StatusCodes.Status404NotFound)
+            ? Results.Json(new { mensaje = "La solicitud no existe o fue eliminada." }, statusCode: StatusCodes.Status404NotFound)
             : Results.Ok(detalle);
     }
 

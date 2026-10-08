@@ -12,6 +12,7 @@ import {
 } from 'react-icons/lu';
 import type { ReactNode } from 'react';
 import { useContadores, useNuevaSolicitud, useSesion } from '../estado/contextos';
+import { BotonTema } from './BotonTema';
 import { numero } from '../util/formato';
 import { Enlace, useUbicacion } from '../util/rutas';
 
@@ -53,6 +54,7 @@ export function MenuLateral() {
         </div>
         <div className="marca-nombre">Mesa de Ayuda</div>
         <div className="marca-sub">IntegradoC en ASSE</div>
+        <BotonTema />
       </div>
 
       <button type="button" className="btn btn-primario menu-nueva" onClick={abrir} title="Nueva solicitud (tecla N)">

@@ -1,3 +1,5 @@
+using HelpDesk.Api.Modulos.TiempoReal;
+
 namespace HelpDesk.Api.Modulos.Catalogos;
 
 /// <summary>Elemento de cualquier catálogo (responsables, medios, tipos, estados, prioridades, áreas).</summary>
@@ -102,7 +104,7 @@ public sealed record DefinicionCatalogo(
     public string SqlOrden => $" ORDER BY c.Orden, c.{ColumnaNombre}";
 }
 
-public sealed class CatalogosRepositorio(BaseDatos db)
+public sealed class CatalogosRepositorio(BaseDatos db, Notificador notificador)
 {
     public static readonly string[] ColoresValidos = ["verde", "naranja", "ambar", "rojo", "azul", "violeta", "gris"];
 
@@ -227,6 +229,7 @@ public sealed class CatalogosRepositorio(BaseDatos db)
         var guardado = await cn.QuerySingleAsync<ItemCatalogo>(def.SqlSelect(true) + " WHERE c.Id = @id", new { id = idFinal }, tx);
         await RegistroAuditoria.RegistrarAsync(cn, tx, usuario.Id, ahora, def.Tabla, idFinal.ToString(CultureInfo.InvariantCulture),
             anterior is null ? "CREADO" : "MODIFICADO", new { anterior, nuevo = guardado });
+        await notificador.PublicarAsync(cn, tx, [TiposCambio.Catalogos, TiposCambio.Solicitudes, TiposCambio.Tareas], "catalogo");
         tx.Commit();
         return guardado;
     }

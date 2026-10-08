@@ -1,3 +1,5 @@
+using HelpDesk.Api.Modulos.TiempoReal;
+
 namespace HelpDesk.Api.Modulos.Catalogos;
 
 public sealed class OficinaItem
@@ -21,7 +23,7 @@ public sealed class UnificarOficinaEntrada
 }
 
 /// <summary>Oficinas: se crean solas al registrar solicitudes y el administrador puede renombrarlas o unificarlas.</summary>
-public sealed class OficinasRepositorio(BaseDatos db)
+public sealed class OficinasRepositorio(BaseDatos db, Notificador notificador)
 {
     public const int LargoNombre = 150;
 
@@ -104,6 +106,7 @@ public sealed class OficinasRepositorio(BaseDatos db)
 
         await RegistroAuditoria.RegistrarAsync(cn, tx, usuario.Id, ahora, "Oficina", id.ToString(CultureInfo.InvariantCulture),
             "MODIFICADO", new { anterior = anterior.Nombre, nuevo = nombre, activo = entrada.Activo });
+        await notificador.PublicarAsync(cn, tx, [TiposCambio.Catalogos, TiposCambio.Solicitudes], "oficina");
         tx.Commit();
 
         anterior.Nombre = nombre;
@@ -138,6 +141,7 @@ public sealed class OficinasRepositorio(BaseDatos db)
 
         await RegistroAuditoria.RegistrarAsync(cn, tx, usuario.Id, ahora, "Oficina", origenId.ToString(CultureInfo.InvariantCulture),
             "UNIFICADA", new { origen, destino, destinoId, solicitudesMovidas = movidas });
+        await notificador.PublicarAsync(cn, tx, [TiposCambio.Catalogos, TiposCambio.Solicitudes], "oficina");
         tx.Commit();
         return movidas;
     }

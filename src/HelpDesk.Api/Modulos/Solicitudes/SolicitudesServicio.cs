@@ -1,9 +1,10 @@
 using HelpDesk.Api.Modulos.Catalogos;
+using HelpDesk.Api.Modulos.TiempoReal;
 
 namespace HelpDesk.Api.Modulos.Solicitudes;
 
 /// <summary>Reglas de negocio de las solicitudes: alta, edición, resolución e historial.</summary>
-public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
+public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj, Notificador notificador)
 {
     public const int LargoFuncionario = 150;
     public const int LargoDescripcion = 500;
@@ -112,16 +113,11 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
             new { rid = usuario.ResponsableId, hoy = reloj.Hoy() });
     }
 
-    /// <summary>ID que recibiría una solicitud creada ahora (orientativo).</summary>
+    /// <summary>Número que recibiría una solicitud creada ahora (orientativo: se asigna al guardar).</summary>
     public async Task<int> ProximoIdAsync(CancellationToken ct)
     {
         await using var cn = await db.AbrirAsync(ct);
-        return await cn.ExecuteScalarAsync<int>(
-            """
-            SELECT CASE WHEN COALESCE(sq.UltimoValor, 0) > COALESCE(m.MaxId, 0) THEN COALESCE(sq.UltimoValor, 0) ELSE COALESCE(m.MaxId, 0) END + 1
-            FROM (SELECT MAX(Id) AS MaxId FROM Solicitud) m
-            LEFT JOIN Secuencia sq ON sq.Nombre = 'Solicitud'
-            """);
+        return await cn.ExecuteScalarAsync<int>(SqlMenorNumeroLibre);
     }
 
     // ------------------------------------------------------------------ alta
@@ -149,22 +145,24 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         var ahora = reloj.Ahora();
         var oficinaId = await OficinasRepositorio.ObtenerOCrearAsync(cn, tx, e.Oficina, ahora);
         var id = await SiguienteIdAsync(cn, tx);
+        var numero = await SiguienteNumeroAsync(cn, tx);
         var resuelta = mapas.EsResuelto(e.EstadoId);
 
         await cn.ExecuteAsync(
             """
             INSERT INTO Solicitud
-                (Id, FechaIngreso, DiaSemana, NombreFuncionario, OficinaId, MedioContactoId, TipoSolicitudId,
+                (Id, Numero, FechaIngreso, DiaSemana, NombreFuncionario, OficinaId, MedioContactoId, TipoSolicitudId,
                  Descripcion, Observaciones, ResponsableId, DuracionEstimadaMin, EstadoId, PrioridadId,
                  FechaResolucion, MinutosResolucion, Origen, Version, CreadoPorId, CreadoEn, ActualizadoPorId, ActualizadoEn)
             VALUES
-                (@Id, @FechaIngreso, @DiaSemana, @NombreFuncionario, @OficinaId, @MedioContactoId, @TipoSolicitudId,
+                (@Id, @Numero, @FechaIngreso, @DiaSemana, @NombreFuncionario, @OficinaId, @MedioContactoId, @TipoSolicitudId,
                  @Descripcion, @Observaciones, @ResponsableId, @DuracionEstimadaMin, @EstadoId, @PrioridadId,
                  @FechaResolucion, @MinutosResolucion, 'APP', 1, @UsuarioId, @FechaIngreso, @UsuarioId, @FechaIngreso)
             """,
             new
             {
                 Id = id,
+                Numero = numero,
                 FechaIngreso = ahora,
                 DiaSemana = Reloj.DiaSemana(ahora),
                 NombreFuncionario = funcionario,
@@ -190,6 +188,7 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
             new CambioHistorial("CREADA", null, null, null,
                 $"Estado inicial: {estado}. Responsable: {responsable}.")
         ]);
+        await notificador.PublicarAsync(cn, tx, [TiposCambio.Solicitudes], "creada", id);
 
         tx.Commit();
         return await ObtenerDetalleAsync(cn, null, id)
@@ -208,8 +207,15 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         using (var tx = cn.BeginTransaction())
         {
             conflictos = await AplicarCambiosAsync(cn, tx, id, cambios, entrada.Base, usuario);
-            if (conflictos.Count > 0) tx.Rollback();
-            else tx.Commit();
+            if (conflictos.Count > 0)
+            {
+                tx.Rollback();
+            }
+            else
+            {
+                await notificador.PublicarAsync(cn, tx, [TiposCambio.Solicitudes], "modificada", id);
+                tx.Commit();
+            }
         }
 
         if (conflictos.Count > 0)
@@ -251,16 +257,19 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
         await using var cn = await db.AbrirAsync(ct);
         using var tx = cn.BeginTransaction();
         var ahora = reloj.Ahora();
-        var filas = await cn.ExecuteAsync(
+        // El número queda libre: la próxima solicitud que se registre lo puede reutilizar.
+        var numero = await cn.ExecuteScalarAsync<int?>(
             """
             UPDATE Solicitud
             SET EliminadoEn = @ahora, EliminadoPorId = @usuarioId, Version = Version + 1
             WHERE Id = @id AND EliminadoEn IS NULL
+            RETURNING Numero
             """,
-            new { id, ahora, usuarioId = usuario.Id }, tx);
-        if (filas == 0) throw ErrorApi.NoEncontrado("La solicitud no existe o ya fue eliminada.");
+            new { id, ahora, usuarioId = usuario.Id }, tx)
+            ?? throw ErrorApi.NoEncontrado("La solicitud no existe o ya fue eliminada.");
         await InsertarHistorialAsync(cn, tx, id, ahora, usuario.Id,
-            [new CambioHistorial("ELIMINADA", null, null, null, $"Eliminada por {usuario.Nombre}. El número {id} no se volverá a usar.")]);
+            [new CambioHistorial("ELIMINADA", null, null, null, $"Eliminada por {usuario.Nombre}. El número {numero} queda disponible para una nueva solicitud.")]);
+        await notificador.PublicarAsync(cn, tx, [TiposCambio.Solicitudes], "eliminada", id);
         tx.Commit();
     }
 
@@ -291,6 +300,7 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
             new { id, fecha, dia = Reloj.DiaSemana(fecha), minutos, ahora, usuarioId = usuario.Id }, tx);
         await InsertarHistorialAsync(cn, tx, id, ahora, usuario.Id,
             [new CambioHistorial("FECHA_CORREGIDA", "Fecha de ingreso", Reloj.Formatear(actual.FechaIngreso), Reloj.Formatear(fecha), motivo)]);
+        await notificador.PublicarAsync(cn, tx, [TiposCambio.Solicitudes], "modificada", id);
         tx.Commit();
         return await ObtenerDetalleAsync(cn, null, id) ?? throw ErrorApi.NoEncontrado();
     }
@@ -561,12 +571,36 @@ public sealed class SolicitudesServicio(BaseDatos db, Reloj reloj)
 
     private static string? UnificarSaltos(string? valor) => valor?.Replace("\r\n", "\n");
 
-    /// <summary>Reserva el próximo número de solicitud. Nunca reutiliza números.</summary>
+    /// <summary>Menor número visible que no usa ninguna solicitud activa (1 si no hay ninguna).</summary>
+    private const string SqlMenorNumeroLibre = """
+        SELECT COALESCE(
+            (SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM Solicitud WHERE Numero = 1 AND EliminadoEn IS NULL)),
+            (SELECT MIN(s.Numero) + 1
+             FROM Solicitud s
+             WHERE s.EliminadoEn IS NULL
+               AND NOT EXISTS (SELECT 1 FROM Solicitud t WHERE t.EliminadoEn IS NULL AND t.Numero = s.Numero + 1)))
+        """;
+
+    // Clave del bloqueo de numeración (pg_advisory_xact_lock): serializa las altas de solicitudes.
+    internal const long ClaveBloqueoNumeracion = 7_310_442_118;
+
+    /// <summary>
+    /// Asigna el número visible: el menor libre. El bloqueo se mantiene hasta el fin de la transacción,
+    /// así dos altas simultáneas nunca calculan el mismo número; además el índice único parcial
+    /// UQ_Solicitud_Numero_Activa impide dos solicitudes activas con el mismo número.
+    /// </summary>
+    internal static async Task<int> SiguienteNumeroAsync(IDbConnection cn, IDbTransaction tx)
+    {
+        await cn.ExecuteAsync("SELECT pg_advisory_xact_lock(@clave)", new { clave = ClaveBloqueoNumeracion }, tx);
+        return await cn.ExecuteScalarAsync<int>(SqlMenorNumeroLibre, transaction: tx);
+    }
+
+    /// <summary>Reserva la próxima clave interna de solicitud. Nunca reutiliza claves.</summary>
     internal static async Task<int> SiguienteIdAsync(IDbConnection cn, IDbTransaction tx)
     {
         await AsegurarSecuenciaAsync(cn, tx);
         // El UPDATE bloquea la fila de Secuencia hasta el fin de la transacción:
-        // dos altas simultáneas nunca reciben el mismo número.
+        // dos altas simultáneas nunca reciben la misma clave.
         return await cn.ExecuteScalarAsync<int>(
             """
             UPDATE Secuencia

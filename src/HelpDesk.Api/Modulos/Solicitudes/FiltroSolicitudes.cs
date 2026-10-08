@@ -83,7 +83,7 @@ public sealed class FiltroSolicitudes
 public static class ConsultaSolicitudes
 {
     public const string Columnas = """
-        SELECT s.Id, s.FechaIngreso, s.DiaSemana, s.NombreFuncionario,
+        SELECT s.Id, s.Numero, s.FechaIngreso, s.DiaSemana, s.NombreFuncionario,
                s.OficinaId, o.Nombre AS Oficina,
                s.MedioContactoId, m.Nombre AS MedioContacto,
                s.TipoSolicitudId, t.Codigo AS TipoSolicitud,
@@ -107,7 +107,7 @@ public static class ConsultaSolicitudes
 
     private static readonly Dictionary<string, string> ColumnasOrden = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["id"] = "s.Id",
+        ["id"] = "s.Numero",
         ["fecha"] = "s.FechaIngreso",
         ["funcionario"] = "s.NombreFuncionario",
         ["oficina"] = "o.Nombre",
@@ -184,7 +184,7 @@ public static class ConsultaSolicitudes
         {
             if (texto.StartsWith('#') && int.TryParse(texto[1..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var idExacto))
             {
-                w.Append(" AND s.Id = @idExacto");
+                w.Append(" AND s.Numero = @idExacto");
                 p.Add("idExacto", idExacto);
             }
             else
@@ -195,7 +195,7 @@ public static class ConsultaSolicitudes
                     var nombre = $"q{i}";
                     p.Add(nombre, "%" + Infraestructura.Texto.EscaparLike(palabras[i]) + "%");
                     w.Append($"""
-                         AND (CAST(s.Id AS TEXT) LIKE @{nombre}
+                         AND (CAST(s.Numero AS TEXT) LIKE @{nombre}
                           OR normalizar(s.NombreFuncionario) LIKE normalizar(@{nombre})
                           OR normalizar(o.Nombre) LIKE normalizar(@{nombre})
                           OR normalizar(s.Descripcion) LIKE normalizar(@{nombre})
@@ -212,20 +212,19 @@ public static class ConsultaSolicitudes
     /// <summary>ORDER BY seguro (solo columnas de la lista blanca).</summary>
     public static string OrderBy(FiltroSolicitudes f, DynamicParameters p)
     {
-        var columna = ColumnasOrden.GetValueOrDefault(f.Orden, "s.Id");
+        var columna = ColumnasOrden.GetValueOrDefault(f.Orden, "s.Numero");
         var direccion = f.Descendente ? "DESC" : "ASC";
         var prefijo = "";
-        // Si se busca un número, la solicitud con ese ID aparece primero.
+        // Si se busca un número, la solicitud con ese número aparece primero.
         if (f.Texto is { } texto && int.TryParse(texto, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idBuscado))
         {
-            prefijo = "CASE WHEN s.Id = @idBuscado THEN 0 ELSE 1 END, ";
+            prefijo = "CASE WHEN s.Numero = @idBuscado THEN 0 ELSE 1 END, ";
             p.Add("idBuscado", idBuscado);
         }
         // NULL al final en ambos sentidos.
-        var nulos = columna == "s.Id" ? "" : $"CASE WHEN {columna} IS NULL THEN 1 ELSE 0 END, ";
-        var desempate = columna.Equals("s.Id", StringComparison.OrdinalIgnoreCase)
-    ? ""
-    : ", s.Id DESC";
+        var nulos = columna == "s.Numero" ? "" : $"CASE WHEN {columna} IS NULL THEN 1 ELSE 0 END, ";
+        // Desempate estable por la clave interna (orden de alta).
+        var desempate = ", s.Id DESC";
 
         return $" ORDER BY {prefijo}{nulos}{columna} {direccion}{desempate}";
     }

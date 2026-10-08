@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using HelpDesk.Api.Excel;
 using HelpDesk.Api.Modulos.Catalogos;
 using HelpDesk.Api.Modulos.Solicitudes;
+using HelpDesk.Api.Modulos.TiempoReal;
 
 namespace HelpDesk.Api.Modulos.Importacion;
 
@@ -76,7 +77,7 @@ public sealed record ResultadoImportacion(
 /// Importa el Excel histórico de la mesa de ayuda (hoja de solicitudes y hoja de tareas extra).
 /// Nunca duplica: una solicitud cuyo ID ya existe se informa como "ya existente" y no se toca.
 /// </summary>
-public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
+public sealed class ImportadorExcel(BaseDatos db, Reloj reloj, SolicitudesServicio solicitudes, Notificador notificador)
 {
     private const string HojaSolicitudesNombre = "Solicitudes";
     private const string HojaTareasNombre = "Tareas extra";
@@ -389,7 +390,9 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
     {
         await using var cn = await db.AbrirAsync(ct);
 
-        var existentes = (await cn.QueryAsync<int>("SELECT Id FROM Solicitud")).ToHashSet();
+        // El ID del Excel es el número visible. Se considera existente si lo usa alguna solicitud
+        // (activa o eliminada): importar dos veces el mismo archivo no agrega nada.
+        var existentes = (await cn.QueryAsync<int>("SELECT DISTINCT Numero FROM Solicitud")).ToHashSet();
         foreach (var fila in analisis.Solicitudes)
         {
             fila.Existente = existentes.Contains(fila.Id);
@@ -461,8 +464,10 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
         // Volver a verificar existentes dentro de la transacción (otro usuario pudo importar mientras tanto).
         // Bloquea altas concurrentes de solicitudes hasta el fin de la importación
         // (equivale al UPDLOCK, HOLDLOCK de la versión SQL Server).
+        // Primero el bloqueo de numeración (mismo orden que el alta de solicitudes: sin interbloqueos).
+        await cn.ExecuteAsync("SELECT pg_advisory_xact_lock(@clave)", new { clave = SolicitudesServicio.ClaveBloqueoNumeracion }, tx);
         await cn.ExecuteAsync("LOCK TABLE Solicitud IN SHARE ROW EXCLUSIVE MODE", transaction: tx);
-        var existentes = (await cn.QueryAsync<int>("SELECT Id FROM Solicitud", transaction: tx)).ToHashSet();
+        var existentes = (await cn.QueryAsync<int>("SELECT DISTINCT Numero FROM Solicitud", transaction: tx)).ToHashSet();
         var nuevas = analisis.Solicitudes.Where(s => !existentes.Contains(s.Id)).ToList();
         var existentesEnArchivo = analisis.Solicitudes.Count - nuevas.Count;
 
@@ -527,9 +532,22 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
 
         if (nuevas.Count > 0)
         {
+            // Claves internas nuevas (un bloque de la secuencia); el ID del Excel se conserva como número visible.
+            await SolicitudesServicio.AsegurarSecuenciaAsync(cn, tx);
+            var ultimaClave = await cn.ExecuteScalarAsync<int>(
+                """
+                UPDATE Secuencia
+                SET UltimoValor = GREATEST(UltimoValor, (SELECT COALESCE(MAX(Id), 0) FROM Solicitud)) + @cantidad
+                WHERE Nombre = 'Solicitud'
+                RETURNING UltimoValor
+                """,
+                new { cantidad = nuevas.Count }, tx);
+            var claves = nuevas.Select((s, i) => (s, Clave: ultimaClave - nuevas.Count + 1 + i)).ToDictionary(x => x.s, x => x.Clave);
+
             var filasSolicitud = nuevas.Select(s => new
             {
-                s.Id,
+                Id = claves[s],
+                Numero = s.Id,
                 s.FechaIngreso,
                 DiaSemana = Reloj.DiaSemana(s.FechaIngreso),
                 s.NombreFuncionario,
@@ -551,12 +569,12 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
             await cn.ExecuteAsync(
                 """
                 INSERT INTO Solicitud
-                    (Id, FechaIngreso, DiaSemana, NombreFuncionario, OficinaId, MedioContactoId, TipoSolicitudId,
+                    (Id, Numero, FechaIngreso, DiaSemana, NombreFuncionario, OficinaId, MedioContactoId, TipoSolicitudId,
                      Descripcion, Observaciones, ResponsableId, DuracionEstimadaMin, EstadoId, PrioridadId,
                      FechaResolucion, MinutosResolucion, Origen, ImportacionId, FilaExcel, Version,
                      CreadoPorId, CreadoEn, ActualizadoPorId, ActualizadoEn)
                 VALUES
-                    (@Id, @FechaIngreso, @DiaSemana, @NombreFuncionario, @OficinaId, @MedioContactoId, @TipoSolicitudId,
+                    (@Id, @Numero, @FechaIngreso, @DiaSemana, @NombreFuncionario, @OficinaId, @MedioContactoId, @TipoSolicitudId,
                      @Descripcion, @Observaciones, @ResponsableId, @DuracionEstimadaMin, @EstadoId, @PrioridadId,
                      NULL, NULL, 'IMPORTACION', @ImportacionId, @FilaExcel, 1,
                      NULL, @Ahora, @UsuarioId, @Ahora)
@@ -565,7 +583,7 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
 
             var historial = nuevas.Select(s => new
             {
-                SolicitudId = s.Id,
+                SolicitudId = claves[s],
                 FechaHora = ahora,
                 UsuarioId = usuario.Id,
                 Accion = "IMPORTADA",
@@ -580,14 +598,6 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
                 """,
                 historial, tx, commandTimeout: 600);
 
-            await SolicitudesServicio.AsegurarSecuenciaAsync(cn, tx);
-            await cn.ExecuteAsync(
-                """
-                UPDATE Secuencia
-                SET UltimoValor = CASE WHEN UltimoValor < @maximo THEN @maximo ELSE UltimoValor END
-                WHERE Nombre = 'Solicitud'
-                """,
-                new { maximo = nuevas.Max(s => s.Id) }, tx);
         }
 
         foreach (var tarea in tareasNuevas)
@@ -620,9 +630,10 @@ public sealed class ImportadorExcel(BaseDatos db, Reloj reloj)
 
         await RegistroAuditoria.RegistrarAsync(cn, tx, usuario.Id, ahora, "Importacion", importacionId.ToString(CultureInfo.InvariantCulture),
             "CONFIRMADA", new { analisis.NombreArchivo, nuevas = nuevas.Count, existentes = existentesEnArchivo, tareas = tareasNuevas.Count });
+        await notificador.PublicarAsync(cn, tx, [TiposCambio.Solicitudes, TiposCambio.Tareas, TiposCambio.Catalogos], "importacion");
         tx.Commit();
 
-        var proximoId = await new SolicitudesServicio(db, reloj).ProximoIdAsync(ct);
+        var proximoId = await solicitudes.ProximoIdAsync(ct);
         return new ResultadoImportacion(importacionId, nuevas.Count, existentesEnArchivo, errores, tareasNuevas.Count, proximoId);
     }
 

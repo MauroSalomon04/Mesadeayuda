@@ -10,18 +10,29 @@ export class ErrorApi extends Error {
   }
 }
 
+/**
+ * Identifica esta pestaña. Viaja en cada modificación para que el servidor lo incluya en el aviso
+ * de tiempo real: la pestaña que hizo el cambio ya actualizó su pantalla y lo ignora.
+ */
+export const CLIENTE = Array.from({ length: 16 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
+
 type Oyente = (error: ErrorApi) => void;
 const oyentesSesion = new Set<Oyente>();
 
 /** Se avisa cuando la sesión expiró (401) o hay que cambiar la contraseña. */
 export function alPerderSesion(oyente: Oyente) {
   oyentesSesion.add(oyente);
-  return () => oyentesSesion.delete(oyente);
+  return () => {
+    oyentesSesion.delete(oyente);
+  };
 }
 
 async function solicitar<T>(metodo: string, ruta: string, cuerpo?: unknown, opciones: { binario?: Blob; ignorar401?: boolean } = {}): Promise<T> {
   const encabezados: Record<string, string> = { Accept: 'application/json' };
-  if (metodo !== 'GET') encabezados['X-HelpDesk'] = '1';
+  if (metodo !== 'GET') {
+    encabezados['X-HelpDesk'] = '1';
+    encabezados['X-HelpDesk-Cliente'] = CLIENTE;
+  }
   let body: BodyInit | undefined;
   if (opciones.binario) {
     body = opciones.binario;

@@ -35,6 +35,10 @@
   --violet-bg: #eeeafc;
   --shadow: 0 1px 2px rgb(27 36 48 / 0.06), 0 8px 24px rgb(27 36 48 / 0.08);
   --shadow-panel: -12px 0 32px rgb(27 36 48 / 0.14);
+  /* Texto sobre fondos de color (botón primario, avisos de error) y velo de diálogos. */
+  --on-pen: #ffffff;
+  --on-alert: #ffffff;
+  --velo: rgb(17 24 33 / 0.38);
 
   --f-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   --f-num: Bahnschrift, "DIN Alternate", "DIN 2014", "DejaVu Sans Condensed", "Roboto Condensed", "Arial Narrow", sans-serif;
@@ -54,38 +58,40 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #11151b;
-    --surface: #181e26;
-    --surface-2: #1d242e;
-    --gutter: #202833;
-    --rule: #2c3643;
-    --rule-strong: #3b4757;
-    --ink: #e5e9ef;
-    --ink-2: #b4bdc9;
-    --ink-3: #8592a2;
-    --pen: #93abff;
-    --pen-hover: #b3c4ff;
-    --pen-soft: #22305c;
-    --pen-ring: rgb(147 171 255 / 0.4);
-    --ok: #79d6a1;
-    --ok-bg: #173527;
-    --ok-dot: #4fbf80;
-    --wait: #f4b860;
-    --wait-bg: #3a2a12;
-    --wait-edge: #d38b1c;
-    --wait-row: #211c14;
-    --hot: #ff9b6b;
-    --hot-bg: #3c2216;
-    --alert: #ff8f85;
-    --alert-bg: #3d1d1b;
-    --violet: #b9a6ff;
-    --violet-bg: #2a2350;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
-    --shadow-panel: -12px 0 32px rgb(0 0 0 / 0.45);
-    color-scheme: dark;
-  }
+/* Modo oscuro: lo activa tema.js (preferencia guardada o del sistema) antes de pintar la página. */
+:root[data-tema="oscuro"] {
+  --paper: #11151b;
+  --surface: #181e26;
+  --surface-2: #1d242e;
+  --gutter: #202833;
+  --rule: #2c3643;
+  --rule-strong: #3b4757;
+  --ink: #e5e9ef;
+  --ink-2: #b4bdc9;
+  --ink-3: #8592a2;
+  --pen: #93abff;
+  --pen-hover: #b3c4ff;
+  --pen-soft: #22305c;
+  --pen-ring: rgb(147 171 255 / 0.4);
+  --ok: #79d6a1;
+  --ok-bg: #173527;
+  --ok-dot: #4fbf80;
+  --wait: #f4b860;
+  --wait-bg: #3a2a12;
+  --wait-edge: #d38b1c;
+  --wait-row: #211c14;
+  --hot: #ff9b6b;
+  --hot-bg: #3c2216;
+  --alert: #ff8f85;
+  --alert-bg: #3d1d1b;
+  --violet: #b9a6ff;
+  --violet-bg: #2a2350;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
+  --shadow-panel: -12px 0 32px rgb(0 0 0 / 0.45);
+  --on-pen: #0f1630;
+  --on-alert: #2a0d0b;
+  --velo: rgb(0 0 0 / 0.55);
+  color-scheme: dark;
 }
 
 *,
@@ -178,7 +184,26 @@ textarea {
 }
 
 .marca {
+  position: relative;
   padding: 2px 10px 18px;
+}
+
+/* Botón de modo claro/oscuro (arriba, junto a la marca). */
+.boton-tema {
+  position: absolute;
+  top: 0;
+  right: 0;
+  color: var(--ink-3);
+}
+
+.boton-tema:hover {
+  color: var(--ink);
+}
+
+.login-tema {
+  position: fixed;
+  top: 16px;
+  right: 16px;
 }
 
 .marca-icono {
@@ -187,7 +212,7 @@ textarea {
   height: 36px;
   border-radius: var(--r-m);
   background: var(--pen);
-  color: #fff;
+  color: var(--on-pen);
   font-family: var(--f-num);
   font-weight: 600;
   place-items: center;
@@ -377,7 +402,7 @@ textarea {
 .btn-primario {
   background: var(--pen);
   border-color: var(--pen);
-  color: #fff;
+  color: var(--on-pen);
 }
 
 .btn-primario:hover {
@@ -385,11 +410,7 @@ textarea {
   border-color: var(--pen-hover);
 }
 
-@media (prefers-color-scheme: dark) {
-  .btn-primario {
-    color: #0f1630;
-  }
-}
+
 
 .btn-ok {
   background: var(--ok-bg);
@@ -823,7 +844,7 @@ mark {
 }
 
 .chip button:hover {
-  background: rgb(33 66 166 / 0.12);
+  background: var(--pen-soft);
 }
 
 /* Selector múltiple de filtros */
@@ -891,7 +912,7 @@ mark {
 .multi-opcion[data-selected] .casilla {
   background: var(--pen);
   border-color: var(--pen);
-  color: #fff;
+  color: var(--on-pen);
 }
 
 /* ------------------------------------------------------------------ tabla tipo planilla */
@@ -1132,7 +1153,7 @@ mark {
 .velo {
   position: fixed;
   inset: 0;
-  background: rgb(17 24 33 / 0.38);
+  background: var(--velo);
   z-index: 80;
 }
 
@@ -2078,7 +2099,7 @@ a.indicador:hover {
 
 .aviso-error {
   background: var(--alert);
-  color: #fff;
+  color: var(--on-alert);
 }
 
 .aviso-accion {
@@ -2133,6 +2154,10 @@ a.indicador:hover {
   }
   .marca-icono {
     display: grid;
+  }
+  .marca .boton-tema {
+    position: static;
+    margin: 8px auto 0;
   }
   .marca-nombre,
   .marca-sub,

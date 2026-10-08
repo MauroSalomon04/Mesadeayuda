@@ -19,6 +19,7 @@ import { Pendientes } from './paginas/Pendientes';
 import { Reportes } from './paginas/Reportes';
 import { Solicitudes } from './paginas/Solicitudes';
 import { TareasExtra } from './paginas/TareasExtra';
+import { useTiempoReal } from './estado/tiempoReal';
 import { useAtajo } from './util/hooks';
 import { cambiarParams, Enlace, useUbicacion } from './util/rutas';
 
@@ -53,6 +54,7 @@ function Aplicacion() {
   const abrirNueva = useCallback(() => setNuevaAbierta(true), []);
   const contextoNueva = useMemo(() => ({ abrir: abrirNueva }), [abrirNueva]);
   useAtajo('n', abrirNueva);
+  useTiempoReal();
 
   const verId = Number(params.get('ver')) || null;
   const esAdmin = usuario?.rol === 'ADMIN';

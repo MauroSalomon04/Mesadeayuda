@@ -252,7 +252,7 @@ export function CasosSimilares({
 }: {
   texto: string;
   excluirId?: number;
-  onUsarSolucion?: (solucion: string, id: number) => void;
+  onUsarSolucion?: (solucion: string, numero: number) => void;
   onAbrir?: (id: number) => void;
 }) {
   const diferido = useDebounce(texto.trim(), 350);
@@ -292,7 +292,7 @@ export function CasosSimilares({
           {resultado.casos.slice(0, cantidad).map((c) => (
             <article key={c.id} className="caso">
               <div className="caso-cabecera">
-                <span className="num">#{c.id}</span>
+                <span className="num">#{c.numero}</span>
                 <span>{fechaCorta(c.fechaIngreso)}</span>
                 <span>{c.responsable}</span>
                 <span style={{ marginLeft: 'auto' }}>
@@ -312,7 +312,7 @@ export function CasosSimilares({
               {(onUsarSolucion || onAbrir) && (
                 <div className="caso-acciones">
                   {onUsarSolucion && c.observaciones && (
-                    <button type="button" className="btn btn-chico btn-sutil" onClick={() => onUsarSolucion(c.observaciones!, c.id)}>
+                    <button type="button" className="btn btn-chico btn-sutil" onClick={() => onUsarSolucion(c.observaciones!, c.numero)}>
                       <LuCopy /> Copiar a observaciones
                     </button>
                   )}

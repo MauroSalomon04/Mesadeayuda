@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import { BotonTema } from '../componentes/BotonTema';
 import { mensajeError, useSesion } from '../estado/contextos';
 
 export function Login() {
@@ -24,6 +25,7 @@ export function Login() {
 
   return (
     <div className="login">
+      <BotonTema className="login-tema" />
       <div className="login-caja">
         <div className="login-marca">
           <div className="marca-nombre">Mesa de Ayuda</div>

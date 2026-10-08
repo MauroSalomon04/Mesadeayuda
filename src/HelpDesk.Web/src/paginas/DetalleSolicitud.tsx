@@ -119,8 +119,8 @@ function Contenido({ id, onCerrar, onCerrarForzado, alModificar }: { id: number;
       emitir('solicitudes');
       avisar(
         extra?.estadoId && actualizado.estadoEsResuelto
-          ? `Solicitud #${id} resuelta${actualizado.minutosResolucion ? ` en ${duracion(actualizado.minutosResolucion)}` : ''}.`
-          : `Cambios guardados en la solicitud #${id}.`,
+          ? `Solicitud #${actualizado.numero} resuelta${actualizado.minutosResolucion ? ` en ${duracion(actualizado.minutosResolucion)}` : ''}.`
+          : `Cambios guardados en la solicitud #${actualizado.numero}.`,
       );
     } catch (e) {
       if (e instanceof ErrorApi && e.estado === 409 && e.datos?.conflictos) {
@@ -164,7 +164,7 @@ function Contenido({ id, onCerrar, onCerrarForzado, alModificar }: { id: number;
         <div className="detalle-titulo">
           <span className="sello">
             <span className="sello-etiqueta">Solicitud</span>
-            <span className="sello-numero">#{detalle.id}</span>
+            <span className="sello-numero">#{detalle.numero}</span>
           </span>
           <Estado nombre={detalle.estado} esResuelto={detalle.estadoEsResuelto} color={detalle.estadoColor} />
           <Prioridad nombre={detalle.prioridad} nivel={detalle.prioridadNivel} />
@@ -293,15 +293,15 @@ function Contenido({ id, onCerrar, onCerrarForzado, alModificar }: { id: number;
         onGuardado={(d) => {
           setDatos(d);
           emitir('solicitudes');
-          avisar(`Fecha de ingreso de la solicitud #${d.id} corregida.`);
+          avisar(`Fecha de ingreso de la solicitud #${d.numero} corregida.`);
         }}
       />
       <Confirmar
         abierto={eliminando}
-        titulo={`¿Eliminar la solicitud #${detalle.id}?`}
+        titulo={`¿Eliminar la solicitud #${detalle.numero}?`}
         texto={
           <p>
-            Deja de aparecer en la tabla y en las estadísticas. Queda registrada en el historial y el número <strong>{detalle.id}</strong> no se vuelve a usar.
+            Deja de aparecer en la tabla y en las estadísticas. Queda registrada en el historial y el número <strong>{detalle.numero}</strong> queda libre para la próxima solicitud que se registre.
           </p>
         }
         accion="Eliminar"
@@ -312,7 +312,7 @@ function Contenido({ id, onCerrar, onCerrarForzado, alModificar }: { id: number;
           try {
             await api.delete(`/api/solicitudes/${detalle.id}`);
             emitir('solicitudes');
-            avisar(`Solicitud #${detalle.id} eliminada.`);
+            avisar(`Solicitud #${detalle.numero} eliminada.`);
             alModificar(false);
             onCerrarForzado();
           } catch (e) {

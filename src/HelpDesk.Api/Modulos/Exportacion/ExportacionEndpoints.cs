@@ -47,7 +47,7 @@ public static class ExportacionEndpoints
 
         var valores = filas.Select(s => new object?[]
         {
-            s.Id,
+            s.Numero,
             s.FechaIngreso,
             s.NombreFuncionario,
             s.Oficina,

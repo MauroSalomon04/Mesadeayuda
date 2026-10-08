@@ -3,6 +3,7 @@ namespace HelpDesk.Api.Modulos.Conocimiento;
 public sealed class CasoSimilar
 {
     public int Id { get; set; }
+    public int Numero { get; set; }
     public DateTime FechaIngreso { get; set; }
     public string? NombreFuncionario { get; set; }
     public string? Oficina { get; set; }
@@ -52,13 +53,14 @@ public sealed class ConocimientoServicio(BaseDatos db)
             p.Add($"k{i}", "%" + Texto.EscaparLike(palabras[i]) + "%");
             condiciones.Add($"normalizar(s.Descripcion) LIKE normalizar(@k{i}) OR normalizar(s.Observaciones) LIKE normalizar(@k{i})");
         }
-        p.Add("excluir", excluirId);
+        // Con tipo explícito: si es null, PostgreSQL no puede deducir el tipo de "@excluir IS NULL".
+        p.Add("excluir", excluirId, DbType.Int32);
         p.Add("maximo", MaximoCandidatos);
 
         var sql = $"""
             SELECT COUNT(*) FROM Solicitud WHERE EliminadoEn IS NULL;
 
-            SELECT s.Id, s.FechaIngreso, s.NombreFuncionario, o.Nombre AS Oficina, s.Descripcion, s.Observaciones,
+            SELECT s.Id, s.Numero, s.FechaIngreso, s.NombreFuncionario, o.Nombre AS Oficina, s.Descripcion, s.Observaciones,
                    r.Nombre AS Responsable, e.Nombre AS Estado, e.EsResuelto AS EstadoEsResuelto, t.Codigo AS TipoSolicitud
             FROM Solicitud s
             LEFT JOIN Oficina o ON o.Id = s.OficinaId

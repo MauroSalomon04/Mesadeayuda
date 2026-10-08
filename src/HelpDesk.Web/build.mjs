@@ -34,6 +34,7 @@ const escribirHtml = {
         .replace('<!--JS-->', js ? `<script src="/assets/${js}" defer></script>` : '');
       fs.writeFileSync(path.join(salida, 'index.html'), html);
       fs.copyFileSync(path.join(raiz, 'favicon.svg'), path.join(salida, 'favicon.svg'));
+      fs.copyFileSync(path.join(raiz, 'tema.js'), path.join(salida, 'tema.js'));
       console.log(`Interfaz generada en ${salida} (${js}, ${css})`);
     });
   },

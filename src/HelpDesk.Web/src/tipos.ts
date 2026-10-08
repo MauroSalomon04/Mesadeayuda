@@ -34,7 +34,10 @@ export interface Catalogos {
 }
 
 export interface SolicitudFila {
+  /** Clave interna permanente (rutas, historial). */
   id: number;
+  /** Número visible; al eliminar la solicitud queda libre y se reutiliza. */
+  numero: number;
   fechaIngreso: string;
   diaSemana: number;
   nombreFuncionario: string | null;
@@ -121,6 +124,7 @@ export interface Conflicto {
 
 export interface CasoSimilar {
   id: number;
+  numero: number;
   fechaIngreso: string;
   nombreFuncionario: string | null;
   oficina: string | null;

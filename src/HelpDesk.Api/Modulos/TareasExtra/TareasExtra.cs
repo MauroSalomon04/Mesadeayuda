@@ -1,3 +1,5 @@
+using HelpDesk.Api.Modulos.TiempoReal;
+
 namespace HelpDesk.Api.Modulos.TareasExtra;
 
 public sealed class TareaExtraFila
@@ -34,7 +36,7 @@ public sealed class TareaExtraEntrada
 }
 
 /// <summary>Tareas extra: colaboraciones de la mesa de ayuda con otras áreas de ASSE.</summary>
-public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj)
+public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj, Notificador notificador)
 {
     private const string Select = """
         SELECT te.Id, te.AreaAsseId, a.Nombre AS Area, te.Tarea, te.Impacto, te.CargaTrabajo, te.Origen,
@@ -139,6 +141,7 @@ public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj)
 
         await RegistroAuditoria.RegistrarAsync(cn, tx, usuario.Id, ahora, "TareaExtra", idFinal.ToString(CultureInfo.InvariantCulture),
             id is null ? "CREADO" : "MODIFICADO", new { entrada.AreaAsseId, tarea, impacto, carga, implicados });
+        await notificador.PublicarAsync(cn, tx, [TiposCambio.Tareas], id is null ? "creada" : "modificada", idFinal);
         tx.Commit();
 
         return await ObtenerAsync(idFinal, ct) ?? throw ErrorApi.NoEncontrado();
@@ -154,6 +157,7 @@ public sealed class TareasExtraRepositorio(BaseDatos db, Reloj reloj)
             new { id, ahora, usuarioId = usuario.Id }, tx);
         if (filas == 0) throw ErrorApi.NoEncontrado("La tarea no existe.");
         await RegistroAuditoria.RegistrarAsync(cn, tx, usuario.Id, ahora, "TareaExtra", id.ToString(CultureInfo.InvariantCulture), "ELIMINADO");
+        await notificador.PublicarAsync(cn, tx, [TiposCambio.Tareas], "eliminada", id);
         tx.Commit();
     }
 

@@ -3,7 +3,10 @@ namespace HelpDesk.Api.Modulos.Solicitudes;
 /// <summary>Una fila de la tabla principal (equivale a una fila del Excel).</summary>
 public class SolicitudFila
 {
+    /// <summary>Clave interna permanente (rutas, historial). Nunca se reutiliza.</summary>
     public int Id { get; set; }
+    /// <summary>Número visible de la solicitud. Al eliminarla queda libre y se reutiliza.</summary>
+    public int Numero { get; set; }
     public DateTime FechaIngreso { get; set; }
     public int DiaSemana { get; set; }
     public string? NombreFuncionario { get; set; }
@@ -59,6 +62,7 @@ public sealed class HistorialItem
 public sealed class SolicitudRegistro
 {
     public int Id { get; set; }
+    public int Numero { get; set; }
     public DateTime FechaIngreso { get; set; }
     public string? NombreFuncionario { get; set; }
     public int? OficinaId { get; set; }

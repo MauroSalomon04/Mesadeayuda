@@ -72,7 +72,7 @@ export function NuevaSolicitud({ abierto, onCerrar }: { abierto: boolean; onCerr
     try {
       const creada = await api.post<SolicitudDetalle>('/api/solicitudes', entradaDesdeForm(form));
       emitir('solicitudes');
-      avisar(`Solicitud #${creada.id} registrada${creada.estadoEsResuelto ? ' como resuelta' : ` como ${creada.estado}`}.`, 'ok', {
+      avisar(`Solicitud #${creada.numero} registrada${creada.estadoEsResuelto ? ' como resuelta' : ` como ${creada.estado}`}.`, 'ok', {
         texto: 'Ver',
         ejecutar: () => cambiarParams({ ver: creada.id }),
       });
@@ -102,8 +102,8 @@ export function NuevaSolicitud({ abierto, onCerrar }: { abierto: boolean; onCerr
     else onCerrar();
   };
 
-  const usarSolucion = (solucion: string, id: number) => {
-    const agregado = `${solucion}\n(Según la solicitud #${id})`;
+  const usarSolucion = (solucion: string, numero: number) => {
+    const agregado = `${solucion}\n(Según la solicitud #${numero})`;
     cambiar('observaciones', form.observaciones.trim() ? `${form.observaciones.trim()}\n${agregado}` : agregado);
   };
 

@@ -12,7 +12,8 @@ export function useAccionesSolicitud() {
   const avisar = useAvisar();
 
   const cambiar = useCallback(
-    async (id: number, cambios: Partial<SolicitudEntrada>, mensaje: string, deshacer?: Partial<SolicitudEntrada>) => {
+    async (fila: Pick<SolicitudFila, 'id' | 'numero'>, cambios: Partial<SolicitudEntrada>, mensaje: string, deshacer?: Partial<SolicitudEntrada>) => {
+      const { id } = fila;
       try {
         const resultado = await api.patch<SolicitudDetalle>(`/api/solicitudes/${id}`, { cambios });
         emitir('solicitudes');
@@ -27,7 +28,7 @@ export function useAccionesSolicitud() {
                     .patch(`/api/solicitudes/${id}`, { cambios: deshacer })
                     .then(() => {
                       emitir('solicitudes');
-                      avisar(`Se deshizo el cambio en la solicitud #${id}.`, 'info');
+                      avisar(`Se deshizo el cambio en la solicitud #${fila.numero}.`, 'info');
                     })
                     .catch((e) => avisar(mensajeError(e), 'error'));
                 },
@@ -44,22 +45,22 @@ export function useAccionesSolicitud() {
   );
 
   const resolver = useCallback(
-    async (fila: Pick<SolicitudFila, 'id' | 'estadoId'>, extra?: { observaciones?: string; duracionEstimadaMin?: number | null }) => {
+    async (fila: Pick<SolicitudFila, 'id' | 'numero' | 'estadoId'>, extra?: { observaciones?: string; duracionEstimadaMin?: number | null }) => {
       try {
         const resultado = await api.post<SolicitudDetalle>(`/api/solicitudes/${fila.id}/resolver`, extra ?? {});
         emitir('solicitudes');
         if (fila.estadoId === null) {
-          avisar(`Solicitud #${fila.id} resuelta.`);
+          avisar(`Solicitud #${fila.numero} resuelta.`);
           return resultado;
         }
-        avisar(`Solicitud #${fila.id} resuelta.`, 'ok', {
+        avisar(`Solicitud #${fila.numero} resuelta.`, 'ok', {
           texto: 'Deshacer',
           ejecutar: () => {
             api
               .patch(`/api/solicitudes/${fila.id}`, { cambios: { estadoId: fila.estadoId } })
               .then(() => {
                 emitir('solicitudes');
-                avisar(`La solicitud #${fila.id} volvió a quedar pendiente.`, 'info');
+                avisar(`La solicitud #${fila.numero} volvió a quedar pendiente.`, 'info');
               })
               .catch((e) => avisar(mensajeError(e), 'error'));
           },

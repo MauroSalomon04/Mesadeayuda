@@ -276,7 +276,7 @@ export function Solicitudes() {
                     onClick={() => cambiarParams({ ver: s.id })}
                   >
                     <td className="col-id">
-                      <Resaltado texto={String(s.id)} palabras={palabras} />
+                      <Resaltado texto={String(s.numero)} palabras={palabras} />
                     </td>
                     <td className="col-fecha">
                       {fechaCorta(s.fechaIngreso)}
@@ -302,7 +302,7 @@ export function Solicitudes() {
                     </td>
                     <td>
                       <MenuDesplegable
-                        etiqueta={`Cambiar responsable de la solicitud ${s.id}`}
+                        etiqueta={`Cambiar responsable de la solicitud ${s.numero}`}
                         boton={s.responsable ? <Resaltado texto={s.responsable} palabras={palabras} /> : <span className="tenue">Asignar</span>}
                         titulo="Cambiar responsable"
                         opciones={activos(catalogos.responsables).map((r) => ({
@@ -311,7 +311,7 @@ export function Solicitudes() {
                           actual: r.id === s.responsableId,
                           alElegir: () => {
                             if (r.id !== s.responsableId)
-                              void cambiar(s.id, { responsableId: r.id }, `Solicitud #${s.id} asignada a ${r.nombre}.`, s.responsableId !== null ? { responsableId: s.responsableId } : undefined);
+                              void cambiar(s, { responsableId: r.id }, `Solicitud #${s.numero} asignada a ${r.nombre}.`, s.responsableId !== null ? { responsableId: s.responsableId } : undefined);
                           },
                         }))}
                       />
@@ -319,7 +319,7 @@ export function Solicitudes() {
                     <td className="col-num">{s.duracionEstimadaMin !== null ? duracion(s.duracionEstimadaMin) : ''}</td>
                     <td>
                       <MenuDesplegable
-                        etiqueta={`Cambiar estado de la solicitud ${s.id}`}
+                        etiqueta={`Cambiar estado de la solicitud ${s.numero}`}
                         boton={<Estado nombre={s.estado} esResuelto={s.estadoEsResuelto} color={s.estadoColor} />}
                         titulo="Cambiar estado"
                         opciones={activos(catalogos.estados).map((e) => ({
@@ -328,7 +328,7 @@ export function Solicitudes() {
                           actual: e.id === s.estadoId,
                           alElegir: () => {
                             if (e.id !== s.estadoId)
-                              void cambiar(s.id, { estadoId: e.id }, `Solicitud #${s.id}: ${e.nombre}.`, s.estadoId !== null ? { estadoId: s.estadoId } : undefined);
+                              void cambiar(s, { estadoId: e.id }, `Solicitud #${s.numero}: ${e.nombre}.`, s.estadoId !== null ? { estadoId: s.estadoId } : undefined);
                           },
                         }))}
                       />
@@ -342,7 +342,7 @@ export function Solicitudes() {
                           type="button"
                           className="btn btn-chico btn-ok btn-icono"
                           title="Resolver"
-                          aria-label={`Resolver la solicitud ${s.id}`}
+                          aria-label={`Resolver la solicitud ${s.numero}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             void resolver(s);

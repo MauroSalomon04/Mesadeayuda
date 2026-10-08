@@ -5,6 +5,7 @@ using HelpDesk.Api.Modulos.Exportacion;
 using HelpDesk.Api.Modulos.Importacion;
 using HelpDesk.Api.Modulos.Solicitudes;
 using HelpDesk.Api.Modulos.TareasExtra;
+using HelpDesk.Api.Modulos.TiempoReal;
 using HelpDesk.Api.Modulos.Usuarios;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -45,6 +46,11 @@ builder.Services.AddSingleton<ReportesServicio>();
 builder.Services.AddSingleton<TareasExtraRepositorio>();
 builder.Services.AddSingleton<ImportadorExcel>();
 builder.Services.AddMemoryCache();
+// Actualización en tiempo real: NOTIFY/LISTEN de PostgreSQL → Server-Sent Events.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<Notificador>();
+builder.Services.AddSingleton<CanalCambios>();
+builder.Services.AddHostedService<EscuchaCambios>();
 
 builder.WebHost.ConfigureKestrel(kestrel =>
 {
@@ -252,6 +258,7 @@ api.MapearEstadisticas();
 api.MapearTareasExtra();
 api.MapearImportacion();
 api.MapearExportacion();
+api.MapearTiempoReal();
 // Cualquier otra ruta /api/... inexistente devuelve 404 (y no la página de la aplicación).
 api.MapFallback(() => Results.Json(new { mensaje = "Recurso no encontrado." }, statusCode: StatusCodes.Status404NotFound))
     .AllowAnonymous();
