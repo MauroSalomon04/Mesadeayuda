@@ -1,0 +1,13 @@
+# Contexto de construcción del backend (raíz del repositorio)
+.git
+.vs
+**/bin
+**/obj
+**/node_modules
+publicado
+docs
+src/HelpDesk.Web
+src/HelpDesk.Api/claves
+src/HelpDesk.Api/admin-password-inicial.txt
+.env
+*.user

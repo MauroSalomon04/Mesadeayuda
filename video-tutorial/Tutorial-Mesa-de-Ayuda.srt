@@ -1,0 +1,207 @@
+1
+00:00:05,200 --> 00:00:08,290
+Bienvenido a la Mesa de
+Ayuda de IntegradoC en ASSE.
+
+2
+00:00:08,919 --> 00:00:13,294
+Esta aplicación reemplaza la planilla
+compartida: mantiene los mismos campos,
+
+3
+00:00:13,334 --> 00:00:17,181
+pero suma numeración automática,
+historial de cambios y estadísticas.
+
+4
+00:00:17,774 --> 00:00:20,690
+Para empezar, ingresás con
+tu usuario y contraseña.
+
+5
+00:00:21,295 --> 00:00:25,080
+La primera vez, el sistema te pide
+cambiar la contraseña temporal.
+
+6
+00:00:26,400 --> 00:00:30,067
+En el inicio tenés un resumen de
+la mesa: las solicitudes de hoy,
+
+7
+00:00:30,107 --> 00:00:32,114
+de la semana y del mes, cuántas quedan
+
+8
+00:00:32,154 --> 00:00:34,710
+pendientes y el tiempo
+promedio de resolución.
+
+9
+00:00:35,315 --> 00:00:39,286
+Podés cambiar el período y ver
+gráficos por mes, oficina, tipo,
+
+10
+00:00:39,333 --> 00:00:43,118
+responsable y estado, además de
+los problemas más frecuentes.
+
+11
+00:00:43,711 --> 00:00:46,590
+Un clic en cualquier barra
+abre la lista ya filtrada.
+
+12
+00:00:47,900 --> 00:00:51,895
+Cuando entra una llamada, apretás la
+tecla N desde cualquier pantalla.
+
+13
+00:00:52,525 --> 00:00:54,834
+El número y la hora se asignan solos.
+
+14
+00:00:55,439 --> 00:01:00,104
+Al escribir el nombre del funcionario, el
+sistema lo reconoce y completa su oficina.
+
+15
+00:01:00,722 --> 00:01:04,419
+Elegís el medio y el tipo con un
+clic y escribís la descripción.
+
+16
+00:01:05,037 --> 00:01:07,986
+A la derecha aparecen los
+casos anteriores parecidos,
+
+17
+00:01:08,026 --> 00:01:11,786
+con la solución que se anotó; con
+un botón la copiás a observaciones.
+
+18
+00:01:12,403 --> 00:01:14,781
+Si se resolvió en la
+llamada, dejás el estado
+
+19
+00:01:14,821 --> 00:01:17,143
+en Resuelto y guardás con Control más Enter.
+
+20
+00:01:18,433 --> 00:01:21,697
+En Solicitudes está todo el
+registro, como en la planilla.
+
+21
+00:01:22,314 --> 00:01:25,151
+Con la tecla barra buscás
+por número, funcionario,
+
+22
+00:01:25,191 --> 00:01:29,025
+oficina o descripción, sin
+importar tildes ni mayúsculas.
+
+23
+00:01:29,630 --> 00:01:34,018
+Las pestañas filtran pendientes,
+resueltas, tus solicitudes o las de hoy,
+
+24
+00:01:34,058 --> 00:01:37,805
+y en Filtros combinás estado,
+responsable, tipo o fechas.
+
+25
+00:01:38,410 --> 00:01:41,570
+El estado y el responsable se
+cambian directo desde la fila,
+
+26
+00:01:41,610 --> 00:01:44,712
+y con Exportar descargás
+la vista en Excel o CSV.
+
+27
+00:01:46,000 --> 00:01:50,379
+Al hacer clic en una fila se abre el
+detalle, donde podés editar cualquier campo.
+
+28
+00:01:50,997 --> 00:01:55,067
+Cada cambio queda registrado en el
+historial, con quién lo hizo y a qué hora.
+
+29
+00:01:55,684 --> 00:01:58,521
+Si dos personas editan la
+misma solicitud a la vez,
+
+30
+00:01:58,561 --> 00:02:00,920
+el sistema avisa antes de pisar un cambio.
+
+31
+00:02:02,233 --> 00:02:04,785
+En Pendientes ves solo
+lo que falta resolver,
+
+32
+00:02:04,825 --> 00:02:08,312
+de lo más antiguo a lo más nuevo,
+con el tiempo que lleva esperando.
+
+33
+00:02:08,917 --> 00:02:11,195
+Con el botón Resolver se cierra la solicitud
+
+34
+00:02:11,235 --> 00:02:13,644
+y se calcula el tiempo
+total desde el ingreso.
+
+35
+00:02:14,966 --> 00:02:18,949
+En Tareas extra registrás los trabajos
+que se hacen con otras áreas de ASSE.
+
+36
+00:02:19,579 --> 00:02:22,131
+Los administradores tienen además Reportes,
+
+37
+00:02:22,171 --> 00:02:26,434
+para cruzar datos por mes, responsable,
+tipo u oficina y exportarlos,
+
+38
+00:02:26,474 --> 00:02:29,348
+y Configuración, donde se
+administran los usuarios,
+
+39
+00:02:29,388 --> 00:02:31,970
+los catálogos y la importación
+del Excel histórico.
+
+40
+00:02:32,587 --> 00:02:37,203
+El perfil Soporte registra y resuelve; el
+perfil Administrador además configura.
+
+41
+00:02:38,500 --> 00:02:42,031
+Así de simple: registrás
+rápido, encontrás soluciones
+
+42
+00:02:42,071 --> 00:02:45,050
+anteriores y tenés todo el
+seguimiento en un solo lugar.
+
+43
+00:02:45,667 --> 00:02:46,822
+Gracias por mirar.
